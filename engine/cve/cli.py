@@ -53,7 +53,7 @@ def analyse(
 def regie(
     project: str = typer.Argument(..., help="Naam van de projectmap onder projecten/"),
     duur: float = typer.Option(None, "--duur", help="Doelduur in seconden"),
-    vorm: str = typer.Option("16:9", "--vorm", help="16:9, 9:16 of 1:1"),
+    vorm: str = typer.Option("16:9", "--vorm", help="16:9, 9:16, 4:5 of 1:1"),
     stijl: str = typer.Option("actie", "--stijl"),
     merk: str = typer.Option("prive", "--merk"),
     muziek_start: float = typer.Option(0.0, "--muziek-start", help="Vanaf welke seconde in de track"),

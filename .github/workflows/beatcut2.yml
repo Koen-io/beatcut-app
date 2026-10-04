@@ -178,10 +178,13 @@ jobs:
           # 'software': traag, maar het rekent hetzelfde.
           "installer/uit/compositor/$exe" --info
 
+      # Eén test tegelijk: op de Windows-runner (WARP, geen GPU) crashte de
+      # spelerproef met 0xc0000005 toen meerdere tests tegelijk een
+      # wgpu-apparaat openden (04-10-2026). Het zijn er maar een paar.
       - name: Compositor-tests
         run: >-
           cargo test --release --manifest-path compositor/Cargo.toml
-          --target ${{ matrix.doel }}
+          --target ${{ matrix.doel }} -- --test-threads=1
 
       # ---------------------------------------------------------------- engine
       - name: Engine-afhankelijkheden

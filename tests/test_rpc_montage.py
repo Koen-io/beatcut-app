@@ -170,9 +170,8 @@ def test_stijlen_noemt_de_vijf_stijlen_en_alleen_vormen_die_werken(montageprojec
     assert namen == ["actie", "landschap", "luchtvaart", "reis", "vlog"]
     assert all(s["titel"] and s["omschrijving"] for s in uit["stijlen"])
     assert uit["herkend"] in namen
-    # Alleen wat de renderer echt kan. 4:5 staat niet in `preset.VORMEN` en
-    # zou dus stil 16:9 opleveren — daarom bieden we het niet aan.
-    assert [v["naam"] for v in uit["vormen"]] == ["16:9", "9:16", "1:1"]
+    # Alleen wat de renderer echt kan: precies `preset.VORMEN`.
+    assert [v["naam"] for v in uit["vormen"]] == ["16:9", "9:16", "4:5", "1:1"]
     assert {"naam": "16:9", "breedte": 1920, "hoogte": 1080} in uit["vormen"]
 
 
@@ -244,7 +243,7 @@ def test_twee_keer_maakvideo_tegelijk_geeft_een_nette_fout(montageproject):
 
 
 @nodig_ffmpeg
-@pytest.mark.parametrize("vorm", ["9:16", "1:1"])
+@pytest.mark.parametrize("vorm", ["9:16", "4:5", "1:1"])
 def test_de_andere_vormen_renderen_ook(montageproject, opgevangen, vorm):
     """Alleen aanbieden wat een test haalt — dus hier gemeten, niet beloofd."""
     project, basis = montageproject
@@ -273,14 +272,14 @@ def test_maakvideo_zonder_analyse_is_een_nette_fout(tmp_path, monkeypatch):
 
 
 def test_een_onbekende_vorm_wordt_geweigerd_in_plaats_van_stil_169(tmp_path, monkeypatch):
-    """4:5 bestaat niet in de renderer; stil terugvallen op 16:9 is erger."""
+    """Een vorm die de renderer niet kent: weigeren, niet stil 16:9 maken."""
     monkeypatch.setattr(paths, "PROJECTEN", tmp_path / "projecten")
     _vraag("project.maak", naam="vormloos")
     antwoord = rpc.verwerk(json.dumps({
         "id": 4, "methode": "project.maakvideo",
-        "params": {"project": "vormloos", "vorm": "4:5"},
+        "params": {"project": "vormloos", "vorm": "21:9"},
     }))
-    assert "4:5" in antwoord["fout"]["bericht"]
+    assert "21:9" in antwoord["fout"]["bericht"]
 
 
 def test_muziek_weigert_een_videobestand(tmp_path, monkeypatch):

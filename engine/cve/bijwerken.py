@@ -424,7 +424,8 @@ def regisseer(
         vorm = (
             f"{bestaand.canvas.breedte}:{bestaand.canvas.hoogte}" if bestaand else "16:9"
         )
-        vorm = {"1920:1080": "16:9", "1080:1920": "9:16", "1080:1080": "1:1"}.get(vorm, "16:9")
+        vorm = {"1920:1080": "16:9", "1080:1920": "9:16", "1080:1350": "4:5",
+                "1080:1080": "1:1"}.get(vorm, "16:9")
 
     voork = voorkeuren(project)
     if not projecten.neem_bezig(project, "De montage opnieuw bedenken…"):

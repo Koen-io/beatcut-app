@@ -25,7 +25,7 @@ from .director.preset import VORMEN
 # De vormen die de renderer écht kan. Uit `director/preset.py`, want daar
 # staat de enige tabel die de canvasmaat bepaalt — een vorm die daar niet in
 # staat valt stil terug op 16:9, en dan krijgt de gebruiker iets anders dan
-# hij koos. 4:5 (Instagram-portret) hoort dus bewust niet in de lijst.
+# hij koos. Sinds 04-10-2026 staat 4:5 (Instagram-portret) er ook in.
 def vormen() -> list[dict]:
     return [
         {"naam": naam, "breedte": b, "hoogte": h} for naam, (b, h) in VORMEN.items()
