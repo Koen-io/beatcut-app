@@ -15,6 +15,7 @@ overgrote deel - en hij kost niets en draait offline.
 
 from __future__ import annotations
 
+from .. import kader as kader_mod
 from .. import montagestijl as montage_mod, paths, stijl as stijl_mod
 from ..analyze import beeld as beeld_mod
 from ..edl import EDL, AudioSpoor, Canvas, Grade, Overgang, VideoBlok, gemiddelde_snelheid
@@ -109,6 +110,10 @@ class PresetRegisseur(Regisseur):
             if not clip:
                 waarschuwingen.append(f"Vastgezette clip {vast['clip']} bestaat niet.")
                 continue
+            vast_vulmodus, vast_kader = self._kadering(
+                clip, canvas, float(vast["bron_start"]),
+                float(vast["bron_start"]) + float(vast["duur"]),
+            )
             edl.video.append(
                 VideoBlok(
                     id=f"vast{i + 1}",
@@ -117,7 +122,8 @@ class PresetRegisseur(Regisseur):
                     bron_start=float(vast["bron_start"]),
                     duur=float(vast["duur"]),
                     tijdlijn_start=0.0,
-                    vulmodus=self._vulmodus(clip, canvas),
+                    vulmodus=vast_vulmodus,
+                    kader=vast_kader,
                     reden="door jou vastgezet",
                     vast=True,
                 )
@@ -200,9 +206,11 @@ class PresetRegisseur(Regisseur):
                 bron_start = seg["start"] + (seg["duur"] - bron_nodig) / 2.0
 
             overgang = self._overgang(mst, teller)
-            vulmodus = self._vulmodus(clip, canvas)
+            vulmodus, kader = self._kadering(
+                clip, canvas, bron_start, bron_start + bron_nodig
+            )
             zoom, zoom_kracht = self._ken_burns(
-                seg, lengte, vulmodus, st, mst, bewegingen
+                seg, lengte, vulmodus, kader, st, mst, bewegingen
             )
             if zoom != "geen":
                 bewegingen += 1
@@ -218,6 +226,7 @@ class PresetRegisseur(Regisseur):
                     snelheid_verloop=verloop,
                     bevriezen=round(bevriezen, 3),
                     vulmodus=vulmodus,
+                    kader=kader,
                     zoom=zoom,
                     zoom_kracht=zoom_kracht,
                     overgang_in=overgang,
@@ -466,13 +475,22 @@ class PresetRegisseur(Regisseur):
         return int(hashes[idx]) if idx < len(hashes) else 0
 
     @staticmethod
-    def _vulmodus(clip: dict, canvas: Canvas) -> str:
-        """Verticale clip in een liggend canvas krijgt een wazige achtergrond."""
-        clip_verticaal = clip.get("verticaal", False)
-        canvas_verticaal = canvas.hoogte > canvas.breedte
-        if clip_verticaal != canvas_verticaal:
-            return "wazig"
-        return "vul"
+    def _kadering(
+        clip: dict, canvas: Canvas, bron_start: float, bron_eind: float
+    ) -> tuple[str, dict]:
+        """Vulmodus plus kader voor dit shot. Zie `cve/kader.py`.
+
+        Een clip die niet op het canvas past kreeg altijd een wazige
+        achtergrond. Nu kijkt de regisseur eerst naar de gemeten
+        aandachtspunten: blijft het onderwerp binnen één venster, dan snijdt
+        hij eromheen weg en vult het beeld het hele canvas - zoals GoPro Quik
+        het doet. Loopt het onderwerp verder dan het venster, dan blijft het
+        bij een wazige achtergrond, want dan zou wegsnijden het halverwege
+        afsnijden.
+        """
+        return kader_mod.kies(
+            clip, canvas.verhouding, clip.get("reeks") or {}, bron_start, bron_eind
+        )
 
     @staticmethod
     def _herscoor(
@@ -520,7 +538,7 @@ class PresetRegisseur(Regisseur):
 
     @classmethod
     def _ken_burns(
-        cls, seg: dict, lengte: float, vulmodus: str, st, mst, gezet: int
+        cls, seg: dict, lengte: float, vulmodus: str, kader: dict, st, mst, gezet: int
     ) -> tuple[str, float]:
         """Geef een stilstaand shot een trage beweging mee.
 
@@ -532,7 +550,12 @@ class PresetRegisseur(Regisseur):
         het midden met een wazige achtergrond eromheen; daar zou een zoom de
         randen van het beeld afsnijden en een pan de compositie uit het
         midden trekken.
+
+        En niet bij een shot met een kader: dat is al om het onderwerp heen
+        gesneden, en een pan zou daar meteen weer vandaan lopen.
         """
+        if kader:
+            return "geen", 0.12
         bw = st.beweging
         if not mst.ken_burns:
             # De montagestijl snijdt te snel voor een trage beweging.
@@ -618,4 +641,10 @@ class PresetRegisseur(Regisseur):
         wazig = sum(1 for b in edl.video if b.vulmodus == "wazig")
         if wazig:
             regels.append(f"{wazig} staande shots kregen een wazige achtergrond.")
+        herkaderd = sum(1 for b in edl.video if b.kader)
+        if herkaderd:
+            regels.append(
+                f"{herkaderd} shots zijn om het onderwerp heen gesneden in plaats van "
+                "door het midden."
+            )
         return " ".join(regels)

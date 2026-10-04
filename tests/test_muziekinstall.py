@@ -376,3 +376,27 @@ def test_halve_installatie_in_de_steunmap_telt_niet(tmp_path, monkeypatch):
     assert p.muziekmodel() is None
     (d / p.MUZIEKMODEL_GEREED).write_text("ok")
     assert p.muziekmodel() == d
+
+
+def test_de_balk_telt_wat_er_op_schijf_staat_en_niet_de_eindmaat(tmp_path):
+    """Een ijl (sparse) bestand heet groot maar is nog leeg.
+
+    Zo levert Hugging Face de gewichten: eerst de eindmaat neerzetten, dan
+    vullen. Telde de balk `st_size`, dan sprong hij in enkele seconden naar de
+    helft en stond daarna minutenlang stil (gemeten 04-10-2026).
+    """
+    if not hasattr(os.stat_result, "st_blocks"):
+        pytest.skip("st_blocks bestaat niet op dit platform")
+    d = tmp_path / "gewichten"
+    d.mkdir()
+    ijl = d / "model.safetensors"
+    with ijl.open("wb") as f:
+        f.truncate(512 * 1024 * 1024)      # 512 MB groot, nul bytes geschreven
+
+    assert muziekinstall._mapgrootte(d) == 512 * 1024 * 1024
+    assert muziekinstall._opschijf(d) < 8 * 1024 * 1024
+
+    with ijl.open("r+b") as f:
+        f.write(b"x" * (4 * 1024 * 1024))   # 4 MB er echt in
+    op_schijf = muziekinstall._opschijf(d)
+    assert 4 * 1024 * 1024 <= op_schijf < 16 * 1024 * 1024

@@ -54,6 +54,12 @@ def _analyseer_een(args: tuple[str, str]) -> tuple[str, dict]:
             "vlakheid": b.vlakheid,
             "hashes": b.hashes,
             "kleur": [list(k) for k in b.kleur],
+            # Waar het onderwerp staat, per meetmoment. Hiermee snijdt de
+            # regisseur een liggende clip in een staand canvas om het
+            # onderwerp heen in plaats van door het midden - zie cve/kader.py.
+            "aandacht_x": b.aandacht_x,
+            "aandacht_y": b.aandacht_y,
+            "aandacht_gezicht": b.aandacht_gezicht,
         },
     }
 

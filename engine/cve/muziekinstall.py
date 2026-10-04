@@ -167,6 +167,32 @@ def _mapgrootte(*mappen: Path) -> int:
     return totaal
 
 
+def _opschijf(*mappen: Path) -> int:
+    """Hoeveel bytes er écht geschreven zijn, niet hoe groot de bestanden heten.
+
+    Hugging Face levert de gewichten via Xet: elk bestand komt meteen op zijn
+    eindmaat op de schijf te staan en wordt daarna gevuld. `st_size` telt dan
+    de maat die het bestand *gaat* worden. Gemeten 04-10-2026: twee seconden na
+    de start zei de balk 2,00 GB terwijl er 0,07 GB stond, en daarna stond hij
+    zeventien seconden stil. `st_blocks` telt alleen toegewezen blokken en
+    volgt dus wat er werkelijk binnenkomt.
+    """
+    if not hasattr(os.stat_result, "st_blocks"):
+        # Windows kent st_blocks niet; daar is st_size het beste dat er is.
+        return _mapgrootte(*mappen)
+    totaal = 0
+    for d in mappen:
+        if not d.is_dir():
+            continue
+        for p in d.rglob("*"):
+            try:
+                if p.is_file() and not p.is_symlink():
+                    totaal += p.stat().st_blocks * 512
+            except OSError:
+                continue
+    return totaal
+
+
 def _meet_groei(mappen: tuple[Path, ...], verwacht: int, *, melder, stap: str,
                 tekst: str, klaar: threading.Event) -> threading.Thread:
     """Meldt elke paar seconden hoe groot de mappen zijn geworden.
@@ -177,7 +203,7 @@ def _meet_groei(mappen: tuple[Path, ...], verwacht: int, *, melder, stap: str,
 
     def kijken() -> None:
         while not klaar.wait(3.0):
-            gedaan = min(_mapgrootte(*mappen), verwacht)
+            gedaan = min(_opschijf(*mappen), verwacht)
             _meld(melder, stap, gedaan, verwacht, tekst)
 
     t = threading.Thread(target=kijken, name=f"muziekinstall-{stap}", daemon=True)

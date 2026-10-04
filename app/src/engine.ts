@@ -1,6 +1,7 @@
 // De enige weg van de interface naar de engine. Elke methode uit
 // engine/cve/rpc.py is hier één aanroep; nergens anders invoke().
 import { invoke } from "@tauri-apps/api/core";
+import type { KaderPunt } from "./speler/uniforms";
 
 export type Check = { naam: string; ok: boolean; detail: string; vereist: boolean };
 export type Doctor = { ok: boolean; fouten: number; checks: Check[] };
@@ -204,6 +205,15 @@ export type Shot = {
   zoom_kracht: number;
   bevriezen: number;
   vulmodus: string;             // vul | pas | wazig
+  /** Herkaderen: waar het venster in de bron valt bij vulmodus `vul`. Leeg of
+   *  afwezig is het midden. `{x, y}` is een vast punt, `{punten}` keyframes —
+   *  zie `edl.VideoBlok.kader` en `engine/cve/kader.py`. */
+  kader?: KaderPunt;
+  /** Op welke as er ruimte is om te herkaderen: "x" bij een liggende clip in
+   *  een staand canvas, "y" andersom, `null` als het beeld toch al past. De
+   *  engine rekent dit uit, zodat de interface de verhoudingen niet hoeft te
+   *  kennen. */
+  kader_as: "x" | "y" | null;
   proxy: string | null;         // absoluut pad; de speler decodeert dit bestand
   reden: string;
   vast: boolean;
@@ -433,7 +443,10 @@ export const projectClipVoorkeur = (
 export const projectShotZet = (
   project: string,
   shot: string,
-  wijziging: { snelheid?: number; bron_in?: number },
+  /** `kader: {}` betekent "automatisch": de engine rekent het opnieuw uit de
+   *  aandachtspunten. Een gevuld object is een eigen keuze. Laat het weg om
+   *  het kader te laten staan zoals het is. */
+  wijziging: { snelheid?: number; bron_in?: number; kader?: KaderPunt },
 ) => engine<Montagestand>("project.shot.zet", { project, shot, ...wijziging });
 /** Alleen de regie opnieuw: geen render, geen ffmpeg behalve de beeldjes. */
 export const projectRegisseer = (

@@ -25,6 +25,7 @@ import json
 from dataclasses import asdict
 from pathlib import Path
 
+from . import kader as kader_mod
 from . import looks, media, paths, projecten
 from .edl import EDL, VideoBlok
 
@@ -286,6 +287,10 @@ def montage(project: str) -> dict | None:
                 "zoom_kracht": b.zoom_kracht,
                 "bevriezen": b.bevriezen,
                 "vulmodus": b.vulmodus,
+                "kader": b.kader,
+                "kader_as": kader_mod.as_met_ruimte(
+                    kader_mod.bronverhouding(rij or {}), edl.canvas.verhouding
+                ),
                 "proxy": str(proxy) if proxy.exists() else None,
                 "reden": b.reden,
                 "vast": b.vast,
@@ -340,8 +345,40 @@ def montage(project: str) -> dict | None:
 # -- één shot bijwerken ----------------------------------------------------
 
 
+def _kadering_voor(pdir: Path, edl: EDL, blok: VideoBlok, keuze: dict) -> tuple[str, dict]:
+    """Welke vulmodus en welk kader horen bij deze keuze van de gebruiker?
+
+    Een leeg object is "automatisch": opnieuw uitrekenen uit de
+    aandachtspunten van de analyse, precies zoals de regisseur het doet - dus
+    inclusief de kans dat het alsnog een wazige achtergrond wordt. Een gevuld
+    object is een eigen keuze, en die betekent altijd wegsnijden.
+    """
+    if keuze:
+        punt = {
+            as_: round(min(1.0, max(0.0, float(keuze[as_]))), 4)
+            for as_ in ("x", "y")
+            if as_ in keuze
+        }
+        if "punten" in keuze:
+            punt["punten"] = keuze["punten"]
+        return "vul", punt
+
+    analyse = _lees(pdir / "analysis.json") or {}
+    clip = next((c for c in analyse.get("clips") or [] if c["id"] == blok.clip), None)
+    if not clip:
+        return blok.vulmodus, {}
+    return kader_mod.kies(
+        clip, edl.canvas.verhouding, clip.get("reeks") or {}, blok.bron_start, blok.bron_eind
+    )
+
+
 def zet_shot(
-    project: str, shot: str, *, snelheid: float | None = None, bron_in: float | None = None
+    project: str,
+    shot: str,
+    *,
+    snelheid: float | None = None,
+    bron_in: float | None = None,
+    kader: dict | None = None,
 ) -> dict:
     """Pas één shot aan zonder de tijdlijn te verschuiven.
 
@@ -364,6 +401,10 @@ def zet_shot(
         blok.snelheid_verloop = []
     if bron_in is not None:
         blok.bron_start = max(0.0, round(float(bron_in), 3))
+    if kader is not None:
+        # Na `bron_in`: het automatische kader kijkt naar het stuk clip dat dit
+        # shot laat zien, en dat is net verschoven.
+        blok.vulmodus, blok.kader = _kadering_voor(pdir, edl, blok, kader)
 
     # Het venster moet binnen de clip blijven: het shot duurt `duur`
     # tijdlijnseconden en eet daarvoor `duur * snelheid` seconden bron op.

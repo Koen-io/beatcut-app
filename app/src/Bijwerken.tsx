@@ -29,6 +29,22 @@ const SNELHEDEN = [0.25, 0.5, 1, 1.5, 2];
 const STAP = 0.5;
 /** Zoveel beeldjes van de filmstrip tonen we; de strook zelf heeft er 24. */
 const STRIP_TONEN = 8;
+/** De vaste standen voor het kader, per as waarop er ruimte is. Welke as dat
+ *  is zegt de engine (`shot.kader_as`) — die kent de verhoudingen. */
+const KADERSTANDEN: Record<"x" | "y", [string, number][]> = {
+  x: [["Links", 0], ["Midden", 0.5], ["Rechts", 1]],
+  y: [["Boven", 0], ["Midden", 0.5], ["Onder", 1]],
+};
+
+/** Welke vaste stand staat er nu? `null` = automatisch, of een punt dat niet
+ *  op een van de drie knoppen valt (dat is wat de engine zelf uitrekende). */
+function kaderStand(shot: Shot): string | null {
+  const as = shot.kader_as;
+  if (!as || !shot.kader) return null;
+  const punt = as === "y" ? shot.kader.y : shot.kader.x;
+  if (punt === undefined) return null;
+  return KADERSTANDEN[as].find(([, w]) => Math.abs(w - punt) < 0.001)?.[0] ?? null;
+}
 /** Leesbare namen voor de gemeten signalen uit de analyse.
  *
  *  De sleutels zijn die van `stijl.Gewichten`. Drie ervan tellen negatief mee:
@@ -121,6 +137,15 @@ export default function Bijwerken({ project, keuze, onMaakVideo, naarStijl }: Pr
   function zetSnelheid(snelheid: number) {
     if (project === null || !shot) return;
     void doe(() => projectShotZet(project, shot.id, { snelheid }), setStand);
+  }
+
+  /** Herkaderen: waar het venster in de bron valt. `null` is automatisch —
+   *  dan rekent de engine het opnieuw uit de aandachtspunten van de analyse. */
+  function zetKader(punt: number | null) {
+    if (project === null || !shot) return;
+    const kader =
+      punt === null ? {} : shot.kader_as === "y" ? { y: punt } : { x: punt };
+    void doe(() => projectShotZet(project, shot.id, { kader }), setStand);
   }
 
   function zetVoorkeur(soort: "moet" | "nooit") {
@@ -282,12 +307,42 @@ export default function Bijwerken({ project, keuze, onMaakVideo, naarStijl }: Pr
                 </div>
               </div>
 
+              {shot.kader_as && (
+                <div className="groep">
+                  <span className="kop-klein">Kader</span>
+                  <div className="segment">
+                    <button
+                      aria-pressed={!kaderStand(shot)}
+                      onClick={() => zetKader(null)}
+                      disabled={bezig}
+                    >
+                      Automatisch
+                    </button>
+                    {KADERSTANDEN[shot.kader_as].map(([label, waarde]) => (
+                      <button
+                        key={label}
+                        aria-pressed={kaderStand(shot) === label}
+                        onClick={() => zetKader(waarde)}
+                        disabled={bezig}
+                      >
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                  <span className="kleine-noot">
+                    Dit beeld is breder of hoger dan de video, dus er valt een stuk
+                    weg. Automatisch volgt wie of wat er beweegt; kies zelf als dat
+                    de verkeerde kant op gaat.
+                  </span>
+                </div>
+              )}
+
               <div className="groep">
                 <span className="kop-klein">Waarom dit shot</span>
                 {signalen(shot.signalen).map((s) => (
                   <div className="signaal" key={s.naam} title={s.uitleg}>
                     <span>{s.label}</span>
-                    <div className="balk">
+                    <div className="voortgangsbalk">
                       <div className="vulling" style={{ "--deel": s.waarde } as CSSProperties} />
                     </div>
                     <span className="mono">{getal(s.waarde)}</span>

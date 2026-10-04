@@ -459,11 +459,18 @@ def _project_shot_zet(p: dict[str, Any]) -> dict[str, Any]:
 
     snelheid = p.get("snelheid")
     bron_in = p.get("bron_in")
+    # `kader` is een object: leeg betekent "automatisch" (laat de engine het
+    # uitrekenen), gevuld is een eigen keuze. Ontbreekt het, dan blijft het
+    # kader zoals het stond - daarom hier `None` en niet `{}` als standaard.
+    kader = p.get("kader")
+    if kader is not None and not isinstance(kader, dict):
+        raise ValueError("kader moet een object zijn, bijvoorbeeld {\"x\": 0.3, \"y\": 0.5}.")
     return bijwerken.zet_shot(
         _vereist(p, "project"),
         _vereist(p, "shot"),
         snelheid=float(snelheid) if snelheid is not None else None,
         bron_in=float(bron_in) if bron_in is not None else None,
+        kader=kader,
     )
 
 

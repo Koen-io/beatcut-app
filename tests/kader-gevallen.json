@@ -1,0 +1,172 @@
+{
+ "_": [
+  "Eén tabel getallen voor twee implementaties van hetzelfde herkaderen:",
+  "engine/cve/kader.py (export, via ffmpeg crop) en app/src/speler/uniforms.ts",
+  "(voorvertoning, via de shader). tests/test_kader.py en app/tests/kader.test.ts",
+  "lezen dit bestand en leggen hun eigen uitkomst hiertegen aan. Wijkt een van",
+  "de twee af, dan is de voorvertoning niet meer wat de export maakt.",
+  "schaal/schuif zijn fracties van de bron: uv_bron = uv_canvas * schaal + schuif."
+ ],
+ "gevallen": [
+  {
+   "naam": "16:9 in 16:9, niets te herkaderen",
+   "bronverhouding": 1.777778,
+   "canvasverhouding": 1.777778,
+   "canvas": [
+    1920,
+    1080
+   ],
+   "zoom": 1.0,
+   "panX": 0,
+   "panY": 0,
+   "kaderX": 0.5,
+   "kaderY": 0.5,
+   "verwacht": {
+    "schaalX": 1.0,
+    "schaalY": 1.0,
+    "schuifX": 0.0,
+    "schuifY": 0.0
+   }
+  },
+  {
+   "naam": "liggend in 9:16, onderwerp links van het midden",
+   "bronverhouding": 1.777778,
+   "canvasverhouding": 0.5625,
+   "canvas": [
+    1080,
+    1920
+   ],
+   "zoom": 1.0,
+   "panX": 0,
+   "panY": 0,
+   "kaderX": 0.3,
+   "kaderY": 0.5,
+   "verwacht": {
+    "schaalX": 0.316406,
+    "schaalY": 1.0,
+    "schuifX": 0.141797,
+    "schuifY": 0.0
+   }
+  },
+  {
+   "naam": "liggend in 9:16, onderwerp tegen de linkerrand",
+   "bronverhouding": 1.777778,
+   "canvasverhouding": 0.5625,
+   "canvas": [
+    1080,
+    1920
+   ],
+   "zoom": 1.0,
+   "panX": 0,
+   "panY": 0,
+   "kaderX": 0.0,
+   "kaderY": 0.5,
+   "verwacht": {
+    "schaalX": 0.316406,
+    "schaalY": 1.0,
+    "schuifX": 0.0,
+    "schuifY": 0.0
+   }
+  },
+  {
+   "naam": "liggend in 9:16, onderwerp tegen de rechterrand",
+   "bronverhouding": 1.777778,
+   "canvasverhouding": 0.5625,
+   "canvas": [
+    1080,
+    1920
+   ],
+   "zoom": 1.0,
+   "panX": 0,
+   "panY": 0,
+   "kaderX": 1.0,
+   "kaderY": 0.5,
+   "verwacht": {
+    "schaalX": 0.316406,
+    "schaalY": 1.0,
+    "schuifX": 0.683594,
+    "schuifY": 0.0
+   }
+  },
+  {
+   "naam": "staand in 16:9, onderwerp hoog in beeld",
+   "bronverhouding": 0.5625,
+   "canvasverhouding": 1.777778,
+   "canvas": [
+    1920,
+    1080
+   ],
+   "zoom": 1.0,
+   "panX": 0,
+   "panY": 0,
+   "kaderX": 0.5,
+   "kaderY": 0.25,
+   "verwacht": {
+    "schaalX": 1.0,
+    "schaalY": 0.316406,
+    "schuifX": 0.0,
+    "schuifY": 0.091797
+   }
+  },
+  {
+   "naam": "liggend in 4:5, onderwerp rechts van het midden",
+   "bronverhouding": 1.777778,
+   "canvasverhouding": 0.8,
+   "canvas": [
+    1080,
+    1350
+   ],
+   "zoom": 1.0,
+   "panX": 0,
+   "panY": 0,
+   "kaderX": 0.6,
+   "kaderY": 0.5,
+   "verwacht": {
+    "schaalX": 0.45,
+    "schaalY": 1.0,
+    "schuifX": 0.375,
+    "schuifY": 0.0
+   }
+  },
+  {
+   "naam": "herkaderd shot met Ken Burns naar links, kwart weg",
+   "bronverhouding": 1.777778,
+   "canvasverhouding": 0.5625,
+   "canvas": [
+    1080,
+    1920
+   ],
+   "zoom": 1.12,
+   "panX": 0.5,
+   "panY": 0,
+   "kaderX": 0.3,
+   "kaderY": 0.5,
+   "verwacht": {
+    "schaalX": 0.282506,
+    "schaalY": 0.892857,
+    "schuifX": 0.167222,
+    "schuifY": 0.053571
+   }
+  },
+  {
+   "naam": "herkaderd shot dat volledig is ingezoomd",
+   "bronverhouding": 1.777778,
+   "canvasverhouding": 0.5625,
+   "canvas": [
+    1080,
+    1920
+   ],
+   "zoom": 1.2,
+   "panX": 0,
+   "panY": 0,
+   "kaderX": 0.3,
+   "kaderY": 0.5,
+   "verwacht": {
+    "schaalX": 0.263672,
+    "schaalY": 0.833333,
+    "schuifX": 0.168164,
+    "schuifY": 0.083333
+   }
+  }
+ ]
+}

@@ -23,6 +23,7 @@ import { identiteit, leesCube, type Lut } from "./lut";
 import Titels from "./Titels";
 import {
   kaderPas,
+  kaderPuntOp,
   kaderVul,
   overgangNummer,
   vulmodusNummer,
@@ -358,9 +359,11 @@ export default function Speler({ stand, spatie = true, onTijd, zoekNaar }: Props
       const kaderVoor = (s: Shot, frame: VideoFrame | null): { vul: Kader; pas: Kader } => {
         const b = frame?.displayWidth || frame?.codedWidth || 16;
         const h = frame?.displayHeight || frame?.codedHeight || 9;
-        const kb = kenBurns(s.zoom, s.zoom_kracht ?? 0, (t - s.start) / Math.max(0.001, s.duur));
+        const f = (t - s.start) / Math.max(0.001, s.duur);
+        const kb = kenBurns(s.zoom, s.zoom_kracht ?? 0, f);
+        const [kx, ky] = kaderPuntOp(s.kader, f);
         return {
-          vul: kaderVul(b / h, canvasVerhouding, kb.zoom, kb.panX, kb.panY),
+          vul: kaderVul(b / h, canvasVerhouding, kb.zoom, kb.panX, kb.panY, kx, ky),
           pas: kaderPas(b / h, canvasVerhouding),
         };
       };

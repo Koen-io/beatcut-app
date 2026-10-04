@@ -132,7 +132,7 @@ export default function Stijl({ project, keuze, setKeuze, onMaakVideo, online }:
   const [installeert, setInstalleert] = useState(false);
   const [instFout, setInstFout] = useState<string | null>(null);
   const [instStand, setInstStand] = useState({
-    percentage: 0, tekst: "", gedaan: 0, totaal: 0,
+    stap: "", percentage: 0, tekst: "", gedaan: 0, totaal: 0,
   });
   // Eén speler voor alle varianten: twee tracks door elkaar is nooit wat
   // iemand bedoelt met op een afspeelknop drukken.
@@ -226,17 +226,28 @@ export default function Stijl({ project, keuze, setKeuze, onMaakVideo, online }:
       if (payload.gebeurtenis === "voortgang") {
         setInstalleert(true);
         // De bytetelling alleen bijwerken als er een is: niet elke stap heeft
-        // bytes te melden, en dan hoort de regel niet weg te knipperen.
-        setInstStand((v) => ({
-          percentage: payload.data.percentage ?? 0,
-          tekst: payload.data.tekst,
-          gedaan: payload.data.totaal > 0 ? payload.data.gedaan : v.gedaan,
-          totaal: payload.data.totaal > 0 ? payload.data.totaal : v.totaal,
-        }));
+        // bytes te melden, en dan hoort de regel niet weg te knipperen. Maar
+        // bytes horen bij één stap: zonder de reset hieronder bleef "9 MB van
+        // 14 MB" (de broncode-zip) onder "Pakketten installeren…" staan, en
+        // daarna onder "Modelgewichten ophalen…". Gemeten 04-10-2026.
+        setInstStand((v) => {
+          const zelfdeStap = payload.data.stap === v.stap;
+          const bytes = payload.data.totaal > 0;
+          return {
+            stap: payload.data.stap,
+            percentage: payload.data.percentage ?? 0,
+            tekst: payload.data.tekst,
+            gedaan: bytes ? payload.data.gedaan : zelfdeStap ? v.gedaan : 0,
+            totaal: bytes ? payload.data.totaal : zelfdeStap ? v.totaal : 0,
+          };
+        });
       } else if (payload.gebeurtenis === "klaar") {
-        setInstalleert(false);
-        // Meteen de genres tonen: de status weet nu dat het model er staat.
-        void muziekStatus(project ?? undefined).then(setMuziekmodel).catch(() => {});
+        // Eerst de status, dán de balk weg. Andersom biedt de kaart een seconde
+        // lang weer "Installeren" aan terwijl de installatie net klaar is.
+        void muziekStatus(project ?? undefined)
+          .then(setMuziekmodel)
+          .catch(() => {})
+          .finally(() => setInstalleert(false));
       } else if (payload.gebeurtenis === "fout") {
         setInstalleert(false);
         setInstFout(payload.data.fout);
@@ -249,7 +260,7 @@ export default function Stijl({ project, keuze, setKeuze, onMaakVideo, online }:
 
   async function installeerModel() {
     setInstFout(null);
-    setInstStand({ percentage: 0, tekst: "Beginnen…", gedaan: 0, totaal: 0 });
+    setInstStand({ stap: "", percentage: 0, tekst: "Beginnen…", gedaan: 0, totaal: 0 });
     setInstalleert(true);
     try {
       // `gestart: false` betekent dat er al een installatie liep; dan is de
@@ -642,8 +653,9 @@ export default function Stijl({ project, keuze, setKeuze, onMaakVideo, online }:
               <b>Muziek maken op deze computer</b>
               <span className="kleine-noot">
                 Eenmalig ongeveer 11 GB downloaden. Daarna werkt het zonder internet en is
-                alles wat je maakt vrij te gebruiken, zonder naamsvermelding. Het duurt een
-                half uur tot een uur; je kunt ondertussen doorwerken.
+                alles wat je maakt vrij te gebruiken, zonder naamsvermelding. Hoe lang het
+                duurt hangt van je verbinding af: op een snelle lijn een paar minuten, op
+                een trage een half uur of langer. Je kunt ondertussen doorwerken.
               </span>
               {installeert ? (
                 <>
@@ -652,7 +664,7 @@ export default function Stijl({ project, keuze, setKeuze, onMaakVideo, online }:
                       <span className="stap-naam">{instStand.tekst || "Bezig…"}</span>
                       <span className="detail">{instStand.percentage}%</span>
                     </div>
-                    <div className="balk">
+                    <div className="voortgangsbalk">
                       <div
                         className="vulling"
                         style={{ "--deel": instStand.percentage / 100 } as CSSProperties}
@@ -726,7 +738,7 @@ export default function Stijl({ project, keuze, setKeuze, onMaakVideo, online }:
                     <span className="stap-naam">{genVoortgang.tekst || "Componeren…"}</span>
                     <span className="detail">{genVoortgang.percentage}%</span>
                   </div>
-                  <div className="balk">
+                  <div className="voortgangsbalk">
                     <div
                       className="vulling"
                       style={{ "--deel": genVoortgang.percentage / 100 } as CSSProperties}

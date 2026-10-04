@@ -394,7 +394,7 @@ function Voortgangsweergave({ stand }: { stand: { kwaliteit: Kwaliteit; voortgan
           );
         })}
       </div>
-      <div className="balk breed">
+      <div className="voortgangsbalk breed">
         <div
           className={`vulling${vg === null ? " pendelt" : ""}`}
           style={{ "--deel": vg === null ? 1 : procent / 100 } as CSSProperties}

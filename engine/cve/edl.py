@@ -100,6 +100,14 @@ class VideoBlok:
     # renderer leidend boven `duur` - alleen zo blijven de blokken naadloos.
     frames: int = 0
     vulmodus: str = "vul"  # vul (crop) | pas (letterbox) | wazig (blurred bars)
+    # Herkaderen: waar het venster in de bron valt bij vulmodus `vul`. Leeg is
+    # het midden, dus een oude edl.json zonder dit veld blijft precies wat hij
+    # was. Twee vormen:
+    #   {"x": 0.35, "y": 0.5}                       één vast punt
+    #   {"punten": [{"t": 0.0, "x": .., "y": ..}]}  keyframes over de duur
+    # De wiskunde staat in `cve/kader.py`, en in dezelfde vorm in
+    # `app/src/speler/uniforms.ts`.
+    kader: dict[str, Any] = field(default_factory=dict)
 
     # -- beweging in het beeld ---------------------------------------------
     # Ken Burns: langzaam in- of uitzoomen zodat een statisch shot toch leeft.
@@ -210,6 +218,48 @@ class Afwerking:
     breedbeeld: float = 0.0
     filmtrilling: float = 0.0
     kleurrand: float = 0.0
+
+
+def _keur_kader(b: VideoBlok) -> None:
+    """Een kaderpunt ligt binnen het beeld, en keyframes staan op volgorde."""
+    k = b.kader
+    if not k:
+        return
+    if not isinstance(k, dict):
+        raise EDLFout(f"Blok {b.id}: kader moet een object zijn, niet {type(k).__name__}.")
+    onbekend = set(k) - {"x", "y", "punten"}
+    if onbekend:
+        raise EDLFout(f"Blok {b.id}: kader heeft onbekende velden {sorted(onbekend)}.")
+
+    punten = k.get("punten")
+    if punten is not None:
+        if "x" in k or "y" in k:
+            raise EDLFout(
+                f"Blok {b.id}: kader heeft zowel een vast punt als keyframes. "
+                "Kies er één, anders is niet te zeggen welke de renderer volgt."
+            )
+        if not punten:
+            raise EDLFout(f"Blok {b.id}: kader heeft een lege lijst keyframes.")
+        vorige = -1.0
+        for p in punten:
+            t = float(p.get("t", 0.0))
+            if not 0.0 <= t <= 1.0:
+                raise EDLFout(f"Blok {b.id}: kaderpunt t={t} valt buiten 0..1.")
+            if t <= vorige:
+                raise EDLFout(f"Blok {b.id}: kaderpunten staan niet op volgorde.")
+            vorige = t
+            _keur_kaderpunt(b, p)
+        return
+    _keur_kaderpunt(b, k)
+
+
+def _keur_kaderpunt(b: VideoBlok, p: dict) -> None:
+    for as_ in ("x", "y"):
+        if as_ not in p:
+            continue
+        w = float(p[as_])
+        if not 0.0 <= w <= 1.0:
+            raise EDLFout(f"Blok {b.id}: kader {as_}={w} valt buiten 0..1.")
 
 
 def _keur_verloop(b: VideoBlok) -> None:
@@ -411,6 +461,7 @@ class EDL:
                     f"Blok {b.id} heeft onbekende overgang '{b.overgang_in.soort}'."
                 )
             _keur_verloop(b)
+            _keur_kader(b)
             vorige_eind = b.tijdlijn_eind
 
         for o in self.overlay:

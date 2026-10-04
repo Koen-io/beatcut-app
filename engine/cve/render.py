@@ -22,7 +22,7 @@ import math
 from dataclasses import dataclass, replace
 from pathlib import Path
 
-from . import compositor, media, paths
+from . import compositor, kader as kader_mod, media, paths
 from .edl import EDL, OVERGANGEN, Afwerking, Canvas, Grade, Look, Overgang, VideoBlok
 
 
@@ -42,6 +42,58 @@ class RenderOpties:
 # --------------------------------------------------------------------------
 
 
+def _kaderexpr(blok: VideoBlok, as_: str) -> str:
+    """Het kaderpunt op deze as (0..1) als ffmpeg-uitdrukking.
+
+    Een vast punt is één getal. Keyframes worden een lineair verloop in `t`,
+    van achter naar voren genest - dezelfde vorm als `_rampfilter`.
+
+    ponytail: `t` is hier de tijd in de *bron*, want het kader wordt gesneden
+    vóór de snelheidsfilters. Bij een constante snelheid is de fractie
+    daardoor exact dezelfde als in de speler (bron en uitvoer lopen in
+    verhouding mee); bij een speed-ramp wijkt hij er iets van af. Keyframes op
+    een ramp-shot bestaan nog niet - wie ze maakt, verlegt dit naar na
+    `setpts`.
+    """
+    punten = (blok.kader or {}).get("punten")
+    if not punten:
+        punt = kader_mod.punt_op(blok.kader)
+        return f"{punt[0 if as_ == 'x' else 1]:.6f}"
+
+    rij = [(float(p["t"]), float(p.get(as_, kader_mod.MIDDEN))) for p in punten]
+    duur = max(1e-3, blok.bron_lengte)
+    expr = f"{rij[-1][1]:.6f}"
+    for (t0, v0), (t1, v1) in reversed(list(zip(rij, rij[1:]))):
+        a, z = t0 * duur, t1 * duur
+        helling = (v1 - v0) / max(1e-6, z - a)
+        expr = (
+            f"if(lt(t\\,{z:.5f})\\,{v0:.6f}+(t-{a:.5f})*{helling:.6f}\\,{expr})"
+        )
+    if rij[0][0] > 0:
+        expr = f"if(lt(t\\,{rij[0][0] * duur:.5f})\\,{rij[0][1]:.6f}\\,{expr})"
+    return expr
+
+
+def _kadercrop(blok: VideoBlok, b: int, h: int) -> str:
+    """De crop die het canvas uit de bron haalt, rond het kaderpunt.
+
+    Zonder kader staat hij in het midden, precies zoals `crop=b:h` altijd
+    deed. Mét kader schuift hij mee met het onderwerp, geklemd binnen het
+    beeld - buiten de bron croppen geeft een zwarte rand.
+
+    Dit is stap 1 van de twee die `cve/kader.py` beschrijft; `_zoomfilter`
+    doet stap 2 binnen dit venster. De speler rekent dezelfde twee stappen in
+    `kaderVul()`.
+    """
+    if not blok.kader:
+        return f"crop={b}:{h}"
+    return (
+        f"crop={b}:{h}"
+        f":x=clip(iw*({_kaderexpr(blok, 'x')})-ow/2\\,0\\,iw-ow)"
+        f":y=clip(ih*({_kaderexpr(blok, 'y')})-oh/2\\,0\\,ih-oh)"
+    )
+
+
 def _pasfilter(blok: VideoBlok, canvas: Canvas) -> str:
     """Zet het beeld op canvasformaat volgens de vulmodus van het blok."""
     b, h = canvas.breedte, canvas.hoogte
@@ -50,7 +102,7 @@ def _pasfilter(blok: VideoBlok, canvas: Canvas) -> str:
         # Vergroot tot beide zijden gedekt zijn, snijd het teveel weg.
         return (
             f"scale={b}:{h}:force_original_aspect_ratio=increase:flags=bicubic,"
-            f"crop={b}:{h}"
+            + _kadercrop(blok, b, h)
         )
 
     if blok.vulmodus == "pas":

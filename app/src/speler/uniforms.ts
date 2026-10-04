@@ -59,39 +59,16 @@ export function overgangNummer(soort: string): number {
   return i < 0 ? 0 : i;
 }
 
-/** Hoe een bron op het canvas valt: schaal en verschuiving in uv-ruimte.
- *  `uv_bron = uv_canvas * schaal + verschuiving`. */
-export type Kader = { schaalX: number; schaalY: number; schuifX: number; schuifY: number };
-
-/** "vul": snijd de bron bij tot de canvasverhouding, en zoom met Ken Burns.
- *  `zoom` 1.0 = geen zoom; groter betekent dichterbij. */
-export function kaderVul(bronVerhouding: number, canvasVerhouding: number, zoom: number, panX: number, panY: number): Kader {
-  // Hoeveel van de bron past er in beeld? Nooit meer dan 1 — dat zou buiten
-  // het beeld samplen en een gespiegelde rand geven.
-  let z = Math.max(0.0001, zoom);
-  let w = 1 / z;
-  let h = 1 / z;
-  if (bronVerhouding > canvasVerhouding) w *= canvasVerhouding / bronVerhouding;
-  else h *= bronVerhouding / canvasVerhouding;
-  // Het pan-bereik is wat er overblijft naast het zichtbare venster.
-  const ruimteX = (1 - w) / 2;
-  const ruimteY = (1 - h) / 2;
-  return {
-    schaalX: w,
-    schaalY: h,
-    schuifX: ruimteX + panX * ruimteX,
-    schuifY: ruimteY + panY * ruimteY,
-  };
-}
-
-/** "pas": het hele beeld binnen het canvas; uv's buiten 0..1 zijn de balken. */
-export function kaderPas(bronVerhouding: number, canvasVerhouding: number): Kader {
-  let w = 1;
-  let h = 1;
-  if (bronVerhouding > canvasVerhouding) h = bronVerhouding / canvasVerhouding;
-  else w = canvasVerhouding / bronVerhouding;
-  return { schaalX: w, schaalY: h, schuifX: (1 - w) / 2, schuifY: (1 - h) / 2 };
-}
+export {
+  kaderPas,
+  kaderPuntOp,
+  kaderVul,
+  schuif,
+  venster,
+  type Kader,
+  type KaderPunt,
+} from "./kader";
+import type { Kader } from "./kader";
 
 export type Stand = {
   kaderA: Kader;

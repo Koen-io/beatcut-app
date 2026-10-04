@@ -397,7 +397,7 @@ export default function Media({ naarStijl, onProject }: Props) {
                   : "proxies · beweging · scherpte · gezichten · GPS"}
               </span>
             </div>
-            <div className="balk">
+            <div className="voortgangsbalk">
               <div
                 className={`vulling${bezig && voortgang?.totaal === 0 ? " pendelt" : ""}`}
                 style={{

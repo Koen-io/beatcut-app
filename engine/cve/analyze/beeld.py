@@ -10,6 +10,11 @@ Metrieken (allemaal 0..1 tenzij anders vermeld):
   beweging    gemiddelde optical-flow-magnitude (onderwerp + camera)
   shake       hoogfrequente variatie in camerabeweging (hoog = wiebelig)
   vlakheid    hoe weinig detail het beeld heeft (lucht, muur, onscherpte)
+
+En per meetmoment één aandachtspunt (`aandacht_x`, `aandacht_y`, 0..1 over het
+beeld): waar het onderwerp staat. Daarmee kan een liggende clip in een staand
+canvas om het onderwerp heen gesneden worden in plaats van door het midden.
+Zie `cve/kader.py`.
 """
 
 from __future__ import annotations
@@ -55,6 +60,14 @@ class ClipBeeld:
     hashes: list[int] = field(default_factory=list)
     # Dominante kleuren per meting als (h, s, v) in 0..1
     kleur: list[tuple[float, float, float]] = field(default_factory=list)
+    # Aandachtspunt per meting: waar staat het onderwerp, 0..1 over breedte
+    # en hoogte van het beeld. Gladgestreken, zodat een crop die dit volgt
+    # niet schokt.
+    aandacht_x: list[float] = field(default_factory=list)
+    aandacht_y: list[float] = field(default_factory=list)
+    # 1 waar het punt van een gezicht komt, 0 waar het geraden is uit
+    # beweging of detail.
+    aandacht_gezicht: list[int] = field(default_factory=list)
     shots: list[Shot] = field(default_factory=list)
 
 
@@ -118,6 +131,119 @@ def _belichtingsscore(grijs: np.ndarray) -> float:
     return float(max(0.0, midden * (1.0 - straf)))
 
 
+# --------------------------------------------------------------------------
+# Aandachtspunt: waar staat het onderwerp?
+# --------------------------------------------------------------------------
+#
+# Drie bronnen, in deze volgorde van betrouwbaarheid:
+#
+#   1. een gezicht - dan is er geen twijfel waar je naar kijkt;
+#   2. beweging die afwijkt van de rest van het beeld - een rijdende auto, een
+#      lopend kind. De mediaan gaat eraf, want die is de camerabeweging zelf:
+#      bij een pan beweegt *alles*, en dan zegt een zwaartepunt niets;
+#   3. detail - waar de randen zitten. Lucht en wegdek zijn vlak, het
+#      onderwerp niet. Zwakke aanwijzing, maar beter dan blind het midden.
+#
+# Alles wordt gemeten op het 320 px brede analysebeeld dat er toch al is.
+
+_cascade: object = None
+
+
+def _gezichtsdetector():
+    """De Haar-cascade van OpenCV, of None als die er niet is.
+
+    Een cascade is een bestand dat met opencv-python meekomt; in een uitgeklede
+    bouw kan het ontbreken. Dan vallen we terug op beweging en detail in plaats
+    van de hele analyse te laten vallen.
+    """
+    global _cascade
+    if _cascade is None:
+        try:
+            pad = Path(cv2.data.haarcascades) / "haarcascade_frontalface_default.xml"
+            det = cv2.CascadeClassifier(str(pad))
+            _cascade = False if det.empty() else det
+        except (AttributeError, cv2.error):
+            _cascade = False
+    return None if _cascade is False else _cascade
+
+
+def _zwaartepunt(gewicht: np.ndarray) -> tuple[float, float] | None:
+    """Het gewogen midden van een beeldvlak, als fractie 0..1."""
+    totaal = float(gewicht.sum())
+    if not math.isfinite(totaal) or totaal <= 1e-9:
+        return None
+    h, b = gewicht.shape[:2]
+    kol = gewicht.sum(axis=0)
+    rij = gewicht.sum(axis=1)
+    x = float((kol * np.arange(b)).sum()) / totaal / max(1, b - 1)
+    y = float((rij * np.arange(h)).sum()) / totaal / max(1, h - 1)
+    return min(1.0, max(0.0, x)), min(1.0, max(0.0, y))
+
+
+def _gezichtspunt(grijs: np.ndarray) -> tuple[float, float] | None:
+    """Het midden van de gezichten, het grootste gezicht het zwaarst."""
+    det = _gezichtsdetector()
+    if det is None:
+        return None
+    h, b = grijs.shape[:2]
+    zijde = max(24, int(b * 0.08))
+    try:
+        vakken = det.detectMultiScale(grijs, 1.2, 5, minSize=(zijde, zijde))
+    except cv2.error:
+        return None
+    if len(vakken) == 0:
+        return None
+    gewicht = sum(float(w * hh) for _, _, w, hh in vakken)
+    x = sum((vx + w / 2) * w * hh for vx, _, w, hh in vakken) / gewicht
+    y = sum((vy + hh / 2) * w * hh for _, vy, w, hh in vakken) / gewicht
+    return min(1.0, max(0.0, x / b)), min(1.0, max(0.0, y / h))
+
+
+def _aandachtspunt(
+    grijs: np.ndarray, laplace: np.ndarray, flow: np.ndarray | None
+) -> tuple[float, float, int]:
+    """Eén aandachtspunt: (x, y, kwam-van-een-gezicht)."""
+    punt = _gezichtspunt(grijs)
+    if punt is not None:
+        return punt[0], punt[1], 1
+
+    if flow is not None:
+        mag = np.sqrt(flow[..., 0] ** 2 + flow[..., 1] ** 2)
+        eigen = np.clip(mag - float(np.median(mag)), 0.0, None)
+        # Alleen als er echt iets uitsteekt. Onder deze drempel is het ruis in
+        # de flow en zou het zwaartepunt per meting rondspringen.
+        if float(eigen.max() if eigen.size else 0.0) > 0.25:
+            punt = _zwaartepunt(eigen)
+            if punt is not None:
+                return punt[0], punt[1], 0
+
+    punt = _zwaartepunt(np.abs(laplace))
+    if punt is None:
+        return 0.5, 0.5, 0
+    return punt[0], punt[1], 0
+
+
+# Over hoeveel metingen het aandachtspunt wordt uitgesmeerd. Bij vier metingen
+# per seconde is 7 bijna twee seconden: een gezicht dat één meting wegvalt
+# verschuift het kader niet, en een crop die dit volgt schokt niet.
+GLAD_VENSTER = 7
+
+
+def _gladgestreken(waarden: list[float], venster: int = GLAD_VENSTER) -> list[float]:
+    """Lopend gemiddelde, met de randen vastgehouden in plaats van naar nul."""
+    if len(waarden) < 2:
+        return [round(v, 4) for v in waarden]
+    arr = np.asarray(waarden, dtype=float)
+    n = min(venster, len(arr))
+    kern = np.ones(n) / n
+    # `edge` aan de randen: `convolve(mode="same")` vult met nullen en trekt
+    # het eerste en laatste punt dan naar de linkerbovenhoek.
+    rand = n // 2
+    gevuld = np.pad(arr, (rand, rand), mode="edge")
+    glad = np.convolve(gevuld, kern, mode="same")[rand : rand + len(arr)]
+    return [round(float(min(1.0, max(0.0, v))), 4) for v in glad]
+
+
 def _getal(x, standaard: float) -> float:
     """Een bruikbaar positief getal, of de standaard (ook bij NaN en oneindig)."""
     try:
@@ -159,13 +285,15 @@ def analyseer_clip(proxy: Path, *, samples_per_sec: int = SAMPLES_PER_SEC) -> Cl
         klein = cv2.resize(frame, (ANALYSE_BREEDTE, max(1, int(h * schaal))))
         grijs = cv2.cvtColor(klein, cv2.COLOR_BGR2GRAY)
 
-        var = float(cv2.Laplacian(grijs, cv2.CV_64F).var())
+        laplace = cv2.Laplacian(grijs, cv2.CV_64F)
+        var = float(laplace.var())
         uit.scherpte.append(round(ijk.scherpte(var), 4))
         uit.vlakheid.append(round(ijk.vlakheid(float(grijs.std())), 4))
         uit.belichting.append(round(_belichtingsscore(grijs), 4))
         uit.hashes.append(dhash(grijs))
         uit.kleur.append(_dominante_kleur(klein))
 
+        flow = None
         if vorige_klein is not None:
             flow = cv2.calcOpticalFlowFarneback(
                 vorige_klein, grijs, None, 0.5, 2, 13, 2, 5, 1.1, 0
@@ -177,6 +305,11 @@ def analyseer_clip(proxy: Path, *, samples_per_sec: int = SAMPLES_PER_SEC) -> Cl
         else:
             uit.beweging.append(0.0)
 
+        ax, ay, gezicht = _aandachtspunt(grijs, laplace, flow)
+        uit.aandacht_x.append(ax)
+        uit.aandacht_y.append(ay)
+        uit.aandacht_gezicht.append(gezicht)
+
         uit.tijden.append(round(idx / fps, 3))
         vorige_klein = grijs
         idx += 1
@@ -185,6 +318,10 @@ def analyseer_clip(proxy: Path, *, samples_per_sec: int = SAMPLES_PER_SEC) -> Cl
 
     # Shake: hoe grillig verandert de beweging van meting op meting.
     uit.shake = _shake_uit_flow(flow_reeks, len(uit.tijden))
+    # Het aandachtspunt pas aan het eind gladstrijken: een crop die per meting
+    # een andere kant op schiet is erger dan een crop die te laat volgt.
+    uit.aandacht_x = _gladgestreken(uit.aandacht_x)
+    uit.aandacht_y = _gladgestreken(uit.aandacht_y)
     return uit
 
 
