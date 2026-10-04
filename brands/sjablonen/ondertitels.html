@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="nl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=1920, height=1080">
+<script src="vendor/gsap.min.js"></script>
+<style>
+  *{margin:0;padding:0;box-sizing:border-box}
+  html,body{width:1920px;height:1080px;overflow:hidden;background:transparent}
+  body{font-family:Inter,-apple-system,"Segoe UI",system-ui,sans-serif}
+  #laag{position:absolute;inset:0}
+  .regel{
+    position:absolute; left:50%; transform:translateX(-50%);
+    display:flex; flex-wrap:wrap; justify-content:center; gap:.28em;
+    width:80%; text-align:center; opacity:0;
+  }
+  .w{
+    display:inline-block; font-weight:800; letter-spacing:-.01em;
+    color:#fff; text-shadow:0 .04em .12em rgba(0,0,0,.9), 0 0 .3em rgba(0,0,0,.7);
+  }
+  /* Karaoke: het woord dat klinkt licht op in de accentkleur. */
+  .w.aan{color:var(--accent)}
+  /* Kaartstijl: donkere balk achter de tekst voor drukke beelden. */
+  #laag.kaart .regel{background:rgba(8,10,13,.72);border-radius:.18em;
+    padding:.3em .6em;width:auto;max-width:80%}
+</style>
+</head>
+<body>
+<!-- Het wortelelement is de compositie zelf; de clip is een kind daarvan.
+     Een wortel die tegelijk `class="clip"` draagt wordt niet als clip
+     meegenomen en dan blijft het hele spoor leeg. -->
+<div id="root"
+     data-composition-id="ondertitels"
+     data-start="0" data-duration="10"
+     data-width="1920" data-height="1080"
+     data-composition-variables='{
+       "regels":   {"type":"string", "default":"[]"},
+       "kleur":    {"type":"string", "default":"#2dd4bf"},
+       "grootte":  {"type":"string", "default":"normaal"},
+       "positie":  {"type":"string", "default":"onder"},
+       "stijl":    {"type":"string", "default":"karaoke"},
+       "duur":     {"type":"number", "default":10}
+     }'>
+  <div id="laag" class="clip" data-start="0" data-duration="10" data-track-index="1"></div>
+</div>
+
+<script>
+const v = (window.__hyperframes && window.__hyperframes.getVariables()) || {};
+const H = 1080;
+const laag = document.getElementById('laag');
+
+let regels = [];
+try { regels = JSON.parse(v.regels || '[]'); } catch { regels = []; }
+
+const MATEN = {klein:0.042, normaal:0.055, groot:0.070};
+const fontpx = H * (MATEN[v.grootte] || MATEN.normaal);
+laag.style.setProperty('--accent', v.kleur || '#2dd4bf');
+if (v.stijl === 'kaart') laag.classList.add('kaart');
+
+/* De duur staat al in de HTML (gezet door graphics._op_maat) — hier alleen
+   nog gebruiken voor de animaties. */
+const duur = parseFloat(document.getElementById('root').getAttribute('data-duration')) || 10;
+
+const onderrand = v.positie === 'boven' ? null : H * 0.115;
+
+window.__timelines = window.__timelines || {};
+const tl = gsap.timeline({paused:true});
+
+/* Alle regels staan van begin af aan in de DOM, onzichtbaar, en worden
+   uitsluitend door de tijdlijn zichtbaar gemaakt.
+
+   Bewust geen `class="clip"` met `data-start` per regel: HyperFrames leest
+   de compositie uit de HTML voordat dit script draait, dus clips die hier
+   worden aangemaakt bestaan niet voor de renderer. Het resultaat was een
+   lege overlay. Met opacity via GSAP werkt het wel, en het is even exact. */
+regels.forEach((r) => {
+  const el = document.createElement('div');
+  el.className = 'regel';
+  el.style.fontSize = fontpx.toFixed(1) + 'px';
+  if (onderrand === null) el.style.top = (H * 0.10).toFixed(0) + 'px';
+  else el.style.bottom = onderrand.toFixed(0) + 'px';
+
+  (r.woorden || []).forEach((w) => {
+    const s = document.createElement('span');
+    s.className = 'w';
+    s.textContent = w.tekst;
+    el.appendChild(s);
+    if (v.stijl === 'karaoke'){
+      // Het woord licht op zodra het klinkt en dooft als het volgende komt.
+      tl.set(s, {color: 'var(--accent)'}, Math.max(0, w.start))
+        .set(s, {color: '#ffffff'}, Math.max(w.start + .08, w.eind));
+    }
+  });
+
+  laag.appendChild(el);
+  tl.fromTo(el, {opacity:0, y: fontpx*0.22},
+                {opacity:1, y:0, duration:.22, ease:'power2.out'}, Math.max(0, r.start))
+    .to(el, {opacity:0, duration:.16, ease:'power2.in'}, r.eind + .02);
+});
+
+window.__timelines['ondertitels'] = tl;
+</script>
+</body>
+</html>

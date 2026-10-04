@@ -1,0 +1,22 @@
+{
+  "id": "prive",
+  "naam": "Persoonlijk",
+  "kleuren": {
+    "primair": "#0EA5A4",
+    "secundair": "#F97316",
+    "accent": "#A855F7",
+    "tekst": "#FFFFFF",
+    "tekst_zwak": "#B8BFC7",
+    "achtergrond": "#0B0E11"
+  },
+  "typografie": {
+    "titel": { "familie": "Inter", "gewicht": 800, "tracking": "-0.02em" },
+    "ondertitel": { "familie": "Inter", "gewicht": 600 },
+    "ondertiteling": { "familie": "Inter", "gewicht": 700, "hoofdletters": true }
+  },
+  "logo": null,
+  "watermerken": [],
+  "intro": null,
+  "outro": null,
+  "veilige_marges": { "boven": 0.06, "onder": 0.08, "links": 0.05, "rechts": 0.05 }
+}

@@ -1,0 +1,331 @@
+{
+  "versie": 1,
+  "grootte": 33,
+  "looks": [
+    {
+      "id": "origineel",
+      "naam": "Origineel",
+      "sfeer": "",
+      "lut": "origineel.cube",
+      "afwerking": {
+        "korrel": 0,
+        "halation": 0,
+        "gloed": 0,
+        "vignet": 0,
+        "lichtlek": 0
+      }
+    },
+    {
+      "id": "blockbuster",
+      "naam": "Blockbuster",
+      "sfeer": "Cinematisch",
+      "lut": "blockbuster.cube",
+      "afwerking": {
+        "korrel": 15,
+        "halation": 20,
+        "gloed": 15,
+        "vignet": 35,
+        "lichtlek": 0
+      }
+    },
+    {
+      "id": "neonnacht",
+      "naam": "Neonnacht",
+      "sfeer": "Cinematisch",
+      "lut": "neonnacht.cube",
+      "afwerking": {
+        "korrel": 20,
+        "halation": 35,
+        "gloed": 40,
+        "vignet": 45,
+        "lichtlek": 0
+      }
+    },
+    {
+      "id": "bioscoop",
+      "naam": "Bioscoop 250",
+      "sfeer": "Cinematisch",
+      "lut": "bioscoop.cube",
+      "afwerking": {
+        "korrel": 25,
+        "halation": 25,
+        "gloed": 20,
+        "vignet": 30,
+        "lichtlek": 0
+      }
+    },
+    {
+      "id": "woestijn",
+      "naam": "Woestijn",
+      "sfeer": "Cinematisch",
+      "lut": "woestijn.cube",
+      "afwerking": {
+        "korrel": 15,
+        "halation": 10,
+        "gloed": 20,
+        "vignet": 35,
+        "lichtlek": 0
+      }
+    },
+    {
+      "id": "portret",
+      "naam": "Portret 400",
+      "sfeer": "Analoge film",
+      "lut": "portret.cube",
+      "afwerking": {
+        "korrel": 25,
+        "halation": 10,
+        "gloed": 10,
+        "vignet": 20,
+        "lichtlek": 0
+      }
+    },
+    {
+      "id": "landschap",
+      "naam": "Landschap 100",
+      "sfeer": "Analoge film",
+      "lut": "landschap.cube",
+      "afwerking": {
+        "korrel": 15,
+        "halation": 5,
+        "gloed": 5,
+        "vignet": 20,
+        "lichtlek": 0
+      }
+    },
+    {
+      "id": "goud",
+      "naam": "Goud 200",
+      "sfeer": "Analoge film",
+      "lut": "goud.cube",
+      "afwerking": {
+        "korrel": 30,
+        "halation": 15,
+        "gloed": 10,
+        "vignet": 25,
+        "lichtlek": 0
+      }
+    },
+    {
+      "id": "groen",
+      "naam": "Groen 400",
+      "sfeer": "Analoge film",
+      "lut": "groen.cube",
+      "afwerking": {
+        "korrel": 30,
+        "halation": 10,
+        "gloed": 5,
+        "vignet": 25,
+        "lichtlek": 0
+      }
+    },
+    {
+      "id": "dia",
+      "naam": "Dia 50",
+      "sfeer": "Analoge film",
+      "lut": "dia.cube",
+      "afwerking": {
+        "korrel": 10,
+        "halation": 5,
+        "gloed": 5,
+        "vignet": 30,
+        "lichtlek": 0
+      }
+    },
+    {
+      "id": "kunstlicht",
+      "naam": "Kunstlicht 800",
+      "sfeer": "Analoge film",
+      "lut": "kunstlicht.cube",
+      "afwerking": {
+        "korrel": 35,
+        "halation": 70,
+        "gloed": 30,
+        "vignet": 30,
+        "lichtlek": 0
+      }
+    },
+    {
+      "id": "super8",
+      "naam": "Super 8",
+      "sfeer": "Retro",
+      "lut": "super8.cube",
+      "afwerking": {
+        "korrel": 65,
+        "halation": 20,
+        "gloed": 15,
+        "vignet": 55,
+        "lichtlek": 35
+      }
+    },
+    {
+      "id": "vhs",
+      "naam": "VHS '93",
+      "sfeer": "Retro",
+      "lut": "vhs.cube",
+      "afwerking": {
+        "korrel": 40,
+        "halation": 0,
+        "gloed": 20,
+        "vignet": 25,
+        "lichtlek": 0
+      }
+    },
+    {
+      "id": "instant",
+      "naam": "Instant",
+      "sfeer": "Retro",
+      "lut": "instant.cube",
+      "afwerking": {
+        "korrel": 30,
+        "halation": 0,
+        "gloed": 15,
+        "vignet": 40,
+        "lichtlek": 10
+      }
+    },
+    {
+      "id": "seventies",
+      "naam": "Seventies",
+      "sfeer": "Retro",
+      "lut": "seventies.cube",
+      "afwerking": {
+        "korrel": 40,
+        "halation": 15,
+        "gloed": 10,
+        "vignet": 40,
+        "lichtlek": 20
+      }
+    },
+    {
+      "id": "korrel",
+      "naam": "Korrel 400",
+      "sfeer": "Zwart-wit",
+      "lut": "korrel.cube",
+      "afwerking": {
+        "korrel": 60,
+        "halation": 0,
+        "gloed": 10,
+        "vignet": 40,
+        "lichtlek": 0
+      }
+    },
+    {
+      "id": "fijn",
+      "naam": "Fijn 100",
+      "sfeer": "Zwart-wit",
+      "lut": "fijn.cube",
+      "afwerking": {
+        "korrel": 15,
+        "halation": 0,
+        "gloed": 5,
+        "vignet": 25,
+        "lichtlek": 0
+      }
+    },
+    {
+      "id": "noir",
+      "naam": "Noir",
+      "sfeer": "Zwart-wit",
+      "lut": "noir.cube",
+      "afwerking": {
+        "korrel": 35,
+        "halation": 0,
+        "gloed": 15,
+        "vignet": 70,
+        "lichtlek": 0
+      }
+    },
+    {
+      "id": "zilver",
+      "naam": "Zilver",
+      "sfeer": "Zwart-wit",
+      "lut": "zilver.cube",
+      "afwerking": {
+        "korrel": 25,
+        "halation": 0,
+        "gloed": 10,
+        "vignet": 20,
+        "lichtlek": 0
+      }
+    },
+    {
+      "id": "gouden",
+      "naam": "Gouden uur",
+      "sfeer": "Warm",
+      "lut": "gouden.cube",
+      "afwerking": {
+        "korrel": 10,
+        "halation": 25,
+        "gloed": 35,
+        "vignet": 25,
+        "lichtlek": 25
+      }
+    },
+    {
+      "id": "zomer",
+      "naam": "Zomer pop",
+      "sfeer": "Warm",
+      "lut": "zomer.cube",
+      "afwerking": {
+        "korrel": 5,
+        "halation": 10,
+        "gloed": 25,
+        "vignet": 15,
+        "lichtlek": 15
+      }
+    },
+    {
+      "id": "tropisch",
+      "naam": "Tropisch",
+      "sfeer": "Warm",
+      "lut": "tropisch.cube",
+      "afwerking": {
+        "korrel": 5,
+        "halation": 10,
+        "gloed": 20,
+        "vignet": 15,
+        "lichtlek": 0
+      }
+    },
+    {
+      "id": "noords",
+      "naam": "Noords",
+      "sfeer": "Koel",
+      "lut": "noords.cube",
+      "afwerking": {
+        "korrel": 15,
+        "halation": 0,
+        "gloed": 10,
+        "vignet": 30,
+        "lichtlek": 0
+      }
+    },
+    {
+      "id": "bos",
+      "naam": "Donker bos",
+      "sfeer": "Koel",
+      "lut": "bos.cube",
+      "afwerking": {
+        "korrel": 25,
+        "halation": 5,
+        "gloed": 10,
+        "vignet": 55,
+        "lichtlek": 0
+      }
+    },
+    {
+      "id": "arctisch",
+      "naam": "Arctisch",
+      "sfeer": "Koel",
+      "lut": "arctisch.cube",
+      "afwerking": {
+        "korrel": 10,
+        "halation": 0,
+        "gloed": 25,
+        "vignet": 15,
+        "lichtlek": 0
+      }
+    }
+  ]
+}

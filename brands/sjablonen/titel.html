@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="nl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=1920, height=1080">
+<script src="vendor/gsap.min.js"></script>
+<!-- Dezelfde stijldefinitie die de Studio gebruikt, zodat wat je in de
+     voorvertoning ziet exact is wat hier gerenderd wordt. -->
+<link rel="stylesheet" href="titelstijlen.css">
+<style>
+  *{margin:0;padding:0;box-sizing:border-box}
+  html,body{width:1920px;height:1080px;overflow:hidden;background:transparent}
+</style>
+</head>
+<body>
+<div id="root"
+     data-composition-id="titel"
+     data-start="0" data-duration="4"
+     data-width="1920" data-height="1080"
+     data-composition-variables='{
+       "titel":       {"type":"string", "default":"Titel"},
+       "eyebrow":     {"type":"string", "default":""},
+       "onder":       {"type":"string", "default":""},
+       "kleur":       {"type":"string", "default":"#2dd4bf"},
+       "tekstkleur":  {"type":"string", "default":"#ffffff"},
+       "positie":     {"type":"string", "default":"linksonder"},
+       "grootte":     {"type":"string", "default":"normaal"},
+       "stijl":       {"type":"string", "default":"glas"},
+       "duur":        {"type":"number", "default":4}
+     }'>
+  <div id="kaart" class="tk clip" data-start="0" data-duration="4" data-track-index="1">
+    <div class="eyebrow" id="eyebrow"></div>
+    <div class="titel" id="titel"></div>
+    <div class="onder" id="onder"></div>
+    <div class="streep" id="streep"></div>
+  </div>
+</div>
+
+<script>
+const v = (window.__hyperframes && window.__hyperframes.getVariables()) || {};
+const B = 1920, H = 1080;
+
+/* Eén font-size op de kaart schaalt alles. Meeschalen met de canvashoogte
+   zodat een staande video even leesbare tekst krijgt als een liggende. */
+const MATEN = {klein:0.052, normaal:0.082, groot:0.118};
+const basis = H * (MATEN[v.grootte] || MATEN.normaal);
+
+const kaart = document.getElementById('kaart');
+kaart.classList.add('tk-' + (v.stijl || 'glas'));
+kaart.style.fontSize = basis.toFixed(2) + 'px';
+kaart.style.setProperty('--accent', v.kleur || '#2dd4bf');
+kaart.style.setProperty('--tekst', v.tekstkleur || '#ffffff');
+
+const zet = (id, waarde) => {
+  const el = document.getElementById(id);
+  if (waarde) el.textContent = waarde; else el.style.display = 'none';
+};
+zet('titel',   v.titel   || 'Titel');
+zet('eyebrow', v.eyebrow || '');
+zet('onder',   v.onder   || '');
+
+/* Negen posities, binnen veilige marges van 5,5 % en 8 %. */
+const M = {x: B * 0.055, y: H * 0.08};
+const posities = {
+  linksboven:   {left:M.x, top:M.y},
+  middenboven:  {left:'50%', top:M.y, transform:'translateX(-50%)'},
+  rechtsboven:  {right:M.x, top:M.y},
+  linksmidden:  {left:M.x, top:'50%', transform:'translateY(-50%)'},
+  midden:       {left:'50%', top:'50%', transform:'translate(-50%,-50%)'},
+  rechtsmidden: {right:M.x, top:'50%', transform:'translateY(-50%)'},
+  linksonder:   {left:M.x, bottom:M.y},
+  middenonder:  {left:'50%', bottom:M.y, transform:'translateX(-50%)'},
+  rechtsonder:  {right:M.x, bottom:M.y},
+};
+const plaats = posities[v.positie] || posities.linksonder;
+Object.entries(plaats).forEach(([k, val]) =>
+  kaart.style[k] = typeof val === 'number' ? val.toFixed(1)+'px' : val);
+if (/^midden/.test(v.positie || '')) kaart.style.textAlign = 'center';
+/* De balkstijl loopt altijd over de volle breedte onderaan. */
+if (v.stijl === 'balk'){ kaart.style.left='0px'; kaart.style.right='0px';
+  kaart.style.top=''; kaart.style.bottom='0px'; kaart.style.transform=''; }
+
+const duur = Math.max(1.2, Number(v.duur) || 4);
+document.getElementById('root').setAttribute('data-duration', duur);
+kaart.setAttribute('data-duration', duur);
+
+/* Een gecentreerde kaart heeft al een transform; die mogen we niet
+   overschrijven met een y-animatie. */
+const heeftTransform = !!plaats.transform && v.stijl !== 'balk';
+window.__timelines = window.__timelines || {};
+const tl = gsap.timeline({paused:true});
+const uit = duur - 0.55;
+
+tl.from('#kaart', heeftTransform
+    ? {opacity:0, duration:.6, ease:'power2.out'}
+    : {opacity:0, y:basis*0.42, duration:.7, ease:'power3.out'}, 0)
+  .from('#eyebrow', {opacity:0, x:-basis*0.2, duration:.45, ease:'power2.out'}, .18)
+  .from('#titel',   {opacity:0, y:basis*0.28, duration:.55, ease:'power3.out'}, .28)
+  .from('#onder',   {opacity:0, y:basis*0.18, duration:.45, ease:'power2.out'}, .42)
+  .from('#streep',  {width:0, duration:.6, ease:'power2.inOut'}, .5)
+  .to('#kaart',     {opacity:0, duration:.5, ease:'power2.in'}, uit);
+
+window.__timelines['titel'] = tl;
+</script>
+</body>
+</html>

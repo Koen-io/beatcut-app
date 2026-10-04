@@ -1,0 +1,324 @@
+/* ==================================================================
+   Claude Video Editor — huisstijl van de interface
+
+   Eén bron voor start.html, wizard.html en index.html. Verander je hier
+   een token, dan verandert de hele app mee. Drie lagen:
+
+     1. palet        ruwe kleuren, naam zegt wát het is
+     2. semantiek    naam zegt waar het vóór dient — hier verschillen de
+                     thema's, en nergens anders
+     3. component    alleen waar een onderdeel echt iets eigens nodig heeft
+
+   Componenten verwijzen nooit rechtstreeks naar laag 1. Doen ze dat wel,
+   dan breekt het thema precies daar.
+
+   ---------------------------------------------------------------
+   Licht en donker met `light-dark()`
+
+   Elke semantische token krijgt beide waarden in één regel. Welke er
+   geldt hangt af van `color-scheme`, en die zetten we op het
+   wortelelement. Zo staat elk token één keer in dit bestand in plaats
+   van twee keer in twee blokken die uit elkaar gaan lopen.
+
+     data-thema ontbreekt of "auto"  → volgt het besturingssysteem
+     data-thema="licht"              → altijd licht
+     data-thema="donker"             → altijd donker
+
+   ---------------------------------------------------------------
+   Over het glas
+
+   Apple's materiaal is niet "een doorzichtig vlak". Het is drie dingen
+   tegelijk, en zonder alle drie ziet het er goedkoop uit:
+
+     1. vervaging én verzadiging van wat eronder ligt (`saturate`),
+        anders wordt het grauw
+     2. een haarlijn die aan de bovenkant lichter is dan aan de onderkant
+        — dat is de glans van de rand, en die maakt de dikte zichtbaar
+     3. een zachte, brede schaduw die het vlak van de achtergrond tilt
+
+   Op een ondergrond zonder enig verloop valt het effect weg; vandaar de
+   subtiele wassing op `body`.
+================================================================== */
+
+/* ---------------- laag 1: palet ---------------- */
+:root{
+  /* Neutraal, licht koel — zoals macOS. Niet puur grijs: een zweem blauw
+     maakt het rustiger voor de ogen dan echt neutraal grijs. */
+  --wit:          #ffffff;
+  --grijs-50:     #f7f7f9;
+  --grijs-100:    #f0f0f3;
+  --grijs-200:    #e4e4e9;
+  --grijs-300:    #d2d2da;
+  --grijs-400:    #a9a9b3;
+  --grijs-500:    #86868b;
+  --grijs-600:    #6e6e76;
+  --grijs-700:    #48484f;
+  --grijs-800:    #2a2a30;
+  --grijs-900:    #1d1d20;
+  --grijs-950:    #131316;
+  --zwart:        #0a0a0c;
+
+  /* Eén accent, en dat is blauw. Systeemblauw is de kleur die op een Mac
+     "hier klik je" betekent; een eigen kleur verzinnen levert alleen maar
+     iets op dat er náást zit. */
+  --blauw:        #0071e3;
+  --blauw-diep:   #0058b0;
+  --blauw-licht:  #0a84ff;
+  --blauw-zacht:  #4aa3ff;
+
+  --oranje:       #c26a00;
+  --oranje-licht: #ff9f0a;
+  --rood:         #d1332e;
+  --rood-licht:   #ff453a;
+  --groen:        #1a8a4b;
+  --groen-licht:  #30d158;
+  --paars:        #7d5bd6;
+  --paars-licht:  #bf93ff;
+}
+
+/* ---------------- laag 2: semantiek ---------------- */
+:root{
+  color-scheme: light dark;
+
+  /* Vlakken */
+  --bg:          light-dark(var(--grijs-100), var(--grijs-950));
+  --paneel:      light-dark(rgba(255,255,255,.72), rgba(38,38,44,.62));
+  --paneel-2:    light-dark(rgba(255,255,255,.86), rgba(52,52,60,.70));
+  --paneel-3:    light-dark(var(--wit),            rgba(66,66,76,.80));
+  --stage:       light-dark(#e8e8ec, #08080a);  /* achter de videospeler */
+
+  /* Randen. `rand` is de haarlijn tussen vlakken, `rand-fel` de rand van
+     een bedieningselement, `rand-licht` die van hetzelfde element als je
+     eroverheen gaat. */
+  --rand:        light-dark(rgba(0,0,0,.10),  rgba(255,255,255,.09));
+  --rand-fel:    light-dark(rgba(0,0,0,.15),  rgba(255,255,255,.14));
+  --rand-licht:  light-dark(rgba(0,0,0,.26),  rgba(255,255,255,.26));
+
+  /* Tekst */
+  --tekst:       light-dark(var(--grijs-900), #f2f2f5);
+  --tekst-2:     light-dark(var(--grijs-600), #a8a8b0);
+  --tekst-3:     light-dark(var(--grijs-500), #7c7c86);
+
+  /* Betekeniskleuren. Op donker iets lichter en minder verzadigd, anders
+     gaan ze trillen tegen de achtergrond. */
+  --accent:       light-dark(var(--blauw),       var(--blauw-licht));
+  --accent-hover: light-dark(var(--blauw-diep),  var(--blauw-zacht));
+  --accent-diep:  light-dark(var(--blauw-diep),  #2b6fd0);
+  --accent-zacht: light-dark(rgba(0,113,227,.10), rgba(10,132,255,.18));
+  --op-accent:    #ffffff;   /* tekst óp de accentkleur, in beide thema's */
+
+  --waarschuwing: light-dark(var(--oranje), var(--oranje-licht));
+  --fout:         light-dark(var(--rood),   var(--rood-licht));
+  --goed:         light-dark(var(--groen),  var(--groen-licht));
+  --vast:         light-dark(var(--paars),  var(--paars-licht));
+
+  /* Glas */
+  --glas:        light-dark(rgba(255,255,255,.66), rgba(30,30,36,.58));
+  --glas-rand:   light-dark(rgba(255,255,255,.85), rgba(255,255,255,.14));
+  --glas-glans:  light-dark(rgba(255,255,255,.95), rgba(255,255,255,.10));
+  --waas:        blur(30px) saturate(180%);
+
+  /* Schaduwen: laag en breed, nooit hard. Op donker doet schaduw weinig,
+     daar tilt vooral het lichtere vlak het element omhoog. */
+  --schaduw-1:   light-dark(0 1px 2px rgba(0,0,0,.05),
+                            0 1px 2px rgba(0,0,0,.30));
+  --schaduw:     light-dark(0 1px 2px rgba(0,0,0,.05), 0 8px 24px rgba(0,0,0,.08));
+  --schaduw-2:   light-dark(0 2px 6px rgba(0,0,0,.07), 0 18px 48px rgba(0,0,0,.11),
+                            0 2px 6px rgba(0,0,0,.40), 0 18px 48px rgba(0,0,0,.55));
+
+  /* Hoeken. Groot genoeg om zacht te zijn, klein genoeg om niet als een
+     snoepje te ogen. */
+  --r-s: 7px;
+  --r-m: 11px;
+  --r-l: 16px;
+  --r-xl: 22px;
+
+  /* Letters. SF Pro op een Mac, Segoe op Windows, en dan pas de rest. */
+  --sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI",
+          Inter, system-ui, sans-serif;
+  --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+
+  /* Beweging. Eén curve, twee snelheden. Alles wat sneller of trager gaat
+     dan dit valt op, en dat is bijna nooit de bedoeling. */
+  --soepel: cubic-bezier(.32,.72,0,1);
+  --snel: .16s var(--soepel);
+  --rustig: .28s var(--soepel);
+}
+
+:root[data-thema="licht"]{ color-scheme: light; }
+:root[data-thema="donker"]{ color-scheme: dark; }
+
+/* ==================================================================
+   Basis
+================================================================== */
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%}
+body{
+  background:var(--bg);
+  color:var(--tekst);
+  font:400 14px/1.55 var(--sans);
+  -webkit-font-smoothing:antialiased;
+  text-rendering:optimizeLegibility;
+  accent-color:var(--accent);
+}
+/* Een wassing achter het glas. Zonder iets om te breken is doorschijnendheid
+   niet te zien; met een egale achtergrond ziet glas eruit als grijs vlak. */
+body::before{
+  content:""; position:fixed; inset:0; z-index:-1; pointer-events:none;
+  background:
+    radial-gradient(58rem 40rem at 12% -8%,  var(--accent-zacht), transparent 62%),
+    radial-gradient(46rem 34rem at 92% 108%, var(--accent-zacht), transparent 60%);
+  opacity:light-dark(.9, .55);
+}
+button{font:inherit;color:inherit;background:none;border:0;cursor:pointer}
+input,select,textarea{font:inherit;color:inherit}
+svg{display:block;flex-shrink:0}
+a{color:var(--accent)}
+
+/* Zichtbare focus, altijd. Wie met het toetsenbord werkt moet kunnen zien
+   waar hij is; wie met de muis werkt heeft er geen last van. */
+:focus-visible{
+  outline:2px solid var(--accent);
+  outline-offset:2px;
+  border-radius:var(--r-s);
+}
+
+::-webkit-scrollbar{width:11px;height:11px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{
+  background:var(--rand-licht); border-radius:6px;
+  border:3px solid transparent; background-clip:content-box;
+}
+::-webkit-scrollbar-thumb:hover{background:var(--tekst-3);background-clip:content-box}
+
+/* ==================================================================
+   Glas — de basis onder elk zwevend vlak
+================================================================== */
+.glas{
+  background:var(--glas);
+  -webkit-backdrop-filter:var(--waas);
+  backdrop-filter:var(--waas);
+  border:1px solid var(--rand);
+  box-shadow:
+    inset 0 1px 0 var(--glas-glans),
+    var(--schaduw);
+}
+
+/* ==================================================================
+   Knoppen
+================================================================== */
+.knop{
+  display:inline-flex; align-items:center; justify-content:center; gap:7px;
+  padding:8px 14px; border-radius:var(--r-m);
+  background:var(--paneel-2);
+  -webkit-backdrop-filter:var(--waas); backdrop-filter:var(--waas);
+  border:1px solid var(--rand-fel);
+  color:var(--tekst); font-weight:510; font-size:13.5px;
+  box-shadow:inset 0 1px 0 var(--glas-glans), var(--schaduw-1);
+  transition:background var(--snel), border-color var(--snel),
+             transform var(--snel), box-shadow var(--snel);
+}
+.knop:hover{background:var(--paneel-3);border-color:var(--rand-licht)}
+.knop:active{transform:scale(.975)}
+.knop:disabled{opacity:.42;cursor:not-allowed;transform:none;box-shadow:none}
+
+.knop.primair{
+  background:var(--accent); border-color:transparent; color:var(--op-accent);
+  font-weight:590;
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.24), var(--schaduw-1);
+}
+.knop.primair:hover{background:var(--accent-hover)}
+.knop.breed{width:100%}
+.knop.klein{padding:5px 10px;font-size:12.5px;border-radius:var(--r-s)}
+.knop.tekst{background:none;border-color:transparent;box-shadow:none;color:var(--tekst-2)}
+.knop.tekst:hover{background:var(--paneel-2);color:var(--tekst)}
+
+/* Toetsaanduiding in een knop */
+kbd{
+  font:500 10.5px/1 var(--mono);
+  padding:3px 5px; border-radius:5px; margin-left:2px;
+  background:var(--rand); color:var(--tekst-3);
+  border:1px solid transparent;
+}
+
+/* ==================================================================
+   Themaschakelaar
+================================================================== */
+/* Segmentschakelaar zoals macOS: een verzonken spoor met een opliggende
+   pil. Het spoor moet dus dónkerder zijn dan de pil, ook in de lichte
+   modus — met een licht spoor én een witte pil zie je niet meer welke
+   stand aanstaat. */
+.thema{
+  display:inline-flex; padding:2px; gap:2px; border-radius:var(--r-m);
+  background:light-dark(rgba(0,0,0,.06), rgba(0,0,0,.28));
+  border:1px solid var(--rand);
+  box-shadow:inset 0 1px 2px light-dark(rgba(0,0,0,.06), rgba(0,0,0,.35));
+}
+.thema button{
+  width:30px; height:26px; border-radius:calc(var(--r-m) - 3px);
+  display:grid; place-items:center; color:var(--tekst-3);
+  transition:background var(--snel), color var(--snel), box-shadow var(--snel);
+}
+.thema button:hover{color:var(--tekst)}
+.thema button.aan{
+  background:light-dark(#fff, rgba(255,255,255,.16));
+  color:var(--tekst);
+  box-shadow:0 1px 2px rgba(0,0,0,.16), 0 0 0 .5px rgba(0,0,0,.06);
+}
+
+/* ==================================================================
+   Eenmalig klaarzetten bij de eerste start
+================================================================== */
+#opstart{
+  position:fixed; inset:0; z-index:200; display:grid; place-items:center;
+  padding:24px; background:var(--bg);
+}
+.opstartkaart{
+  width:min(460px,100%); padding:30px 30px 26px; border-radius:var(--r-xl);
+  background:var(--glas);
+  -webkit-backdrop-filter:var(--waas); backdrop-filter:var(--waas);
+  border:1px solid var(--rand);
+  box-shadow:inset 0 1px 0 var(--glas-glans), var(--schaduw-2);
+}
+.opstartkaart h2{font-size:21px;font-weight:640;letter-spacing:-.02em;margin-bottom:8px}
+.opstartkaart p{color:var(--tekst-2);font-size:14px;line-height:1.55}
+.opstartkaart .vbalk{height:8px;border-radius:4px;background:var(--rand);
+  overflow:hidden;margin:20px 0 10px}
+.opstartkaart .vbalk i{display:block;height:100%;background:var(--accent);
+  border-radius:4px;transition:width .5s var(--soepel)}
+.opstartklein{font-family:var(--mono);font-size:12.5px;color:var(--tekst-3)}
+.opstartklein code{background:var(--rand);padding:2px 6px;border-radius:5px}
+
+/* ==================================================================
+   Melding dat er een nieuwe versie is
+================================================================== */
+.updatebalk{
+  position:fixed; left:50%; bottom:22px; transform:translateX(-50%);
+  z-index:120; display:flex; align-items:center; gap:14px;
+  padding:11px 12px 11px 18px; border-radius:999px;
+  background:var(--paneel-3);
+  -webkit-backdrop-filter:var(--waas); backdrop-filter:var(--waas);
+  border:1px solid var(--rand-fel);
+  box-shadow:inset 0 1px 0 var(--glas-glans), var(--schaduw-2);
+  font-size:13.5px; max-width:min(560px,92vw);
+  animation:omhoog .4s var(--soepel);
+}
+@keyframes omhoog{from{opacity:0;transform:translate(-50%,14px)}}
+.updatebalk a{font-weight:600;text-decoration:none;white-space:nowrap}
+.updatebalk a:hover{text-decoration:underline}
+.updatebalk button{
+  width:26px;height:26px;border-radius:50%;flex:none;
+  color:var(--tekst-3);font-size:17px;line-height:1;
+  display:grid;place-items:center;
+}
+.updatebalk button:hover{background:var(--rand);color:var(--tekst)}
+
+/* ==================================================================
+   Beweging uit als het besturingssysteem daarom vraagt
+================================================================== */
+@media (prefers-reduced-motion: reduce){
+  *,*::before,*::after{
+    animation-duration:.001ms !important;
+    transition-duration:.001ms !important;
+  }
+}

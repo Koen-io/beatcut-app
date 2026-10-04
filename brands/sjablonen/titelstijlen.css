@@ -1,0 +1,116 @@
+/* ==================================================================
+   Tien titelstijlen — één bron voor render én voorvertoning.
+
+   Dit bestand wordt geladen door:
+     brands/sjablonen/titel.html   (wat er gerenderd wordt)
+     studio/index.html             (wat je in de speler ziet)
+
+   Daardoor kunnen ze niet uit elkaar lopen. Voeg je een stijl toe, dan
+   verschijnt hij vanzelf op beide plekken.
+
+   Alle maten in `em`. De hoofdcontainer krijgt één font-size die met de
+   canvashoogte meeschaalt; zo blijft alles kloppend op elk formaat.
+   Kleuren komen binnen als CSS-variabelen:
+     --accent    de accentkleur van de titel
+     --tekst     de tekstkleur
+================================================================== */
+
+.tk{
+  position:absolute; display:inline-block; max-width:62%;
+  color:var(--tekst,#fff);
+  font-family:Inter,-apple-system,"Segoe UI",system-ui,sans-serif;
+}
+.tk .eyebrow{font-weight:800;letter-spacing:.24em;text-transform:uppercase;
+  font-size:.26em;color:var(--accent,#2dd4bf)}
+.tk .titel{font-weight:800;letter-spacing:-.025em;line-height:1.03;font-size:1em}
+.tk .onder{font-weight:500;opacity:.86;font-size:.38em}
+.tk .streep{background:var(--accent,#2dd4bf);border-radius:.04em}
+
+/* Standaard afstanden; stijlen mogen ze overschrijven. */
+.tk .eyebrow{margin-bottom:.42em}
+.tk .onder{margin-top:.5em}
+.tk .streep{height:.055em;width:1.2em;margin-top:.5em}
+
+/* ---------- 1. glas — doorschijnende kaart, rustig en neutraal ---------- */
+.tk-glas{
+  background:linear-gradient(135deg, rgba(12,16,21,.80), rgba(12,16,21,.62));
+  border:1px solid rgba(255,255,255,.18);
+  box-shadow:0 .35em 1.1em rgba(0,0,0,.55), inset 0 1px 0 rgba(255,255,255,.16);
+  padding:.5em .8em .58em; border-radius:.24em;
+}
+
+/* ---------- 2. minimaal — alleen tekst, met schaduw voor leesbaarheid ---------- */
+.tk-minimaal .titel{text-shadow:0 .03em .28em rgba(0,0,0,.85), 0 0 .8em rgba(0,0,0,.5)}
+.tk-minimaal .onder{text-shadow:0 .02em .2em rgba(0,0,0,.85)}
+.tk-minimaal .eyebrow{text-shadow:0 .02em .2em rgba(0,0,0,.8)}
+
+/* ---------- 3. balk — volle breedte onderin, klassiek nieuwsformat ---------- */
+.tk-balk{
+  max-width:100%; left:0 !important; right:0 !important; width:100%;
+  background:linear-gradient(transparent, rgba(8,10,13,.92) 38%);
+  padding:1.6em 1.1em .7em; border-radius:0;
+}
+.tk-balk .streep{width:2em;height:.07em}
+
+/* ---------- 4. lowerthird — accentstreep links, zakelijk ---------- */
+.tk-lowerthird{
+  background:rgba(8,10,13,.82);
+  border-left:.14em solid var(--accent,#2dd4bf);
+  padding:.44em .8em .5em .62em; border-radius:0 .12em .12em 0;
+}
+.tk-lowerthird .streep{display:none}
+.tk-lowerthird .eyebrow{margin-bottom:.28em}
+
+/* ---------- 5. statement — groot en vrij, voor een openingsbeeld ---------- */
+.tk-statement{max-width:80%}
+.tk-statement .titel{font-size:1.55em;font-weight:800;letter-spacing:-.035em;
+  text-shadow:0 .04em .4em rgba(0,0,0,.7)}
+.tk-statement .eyebrow{font-size:.22em;opacity:.95}
+.tk-statement .streep{height:.05em;width:1.6em;margin-top:.35em}
+
+/* ---------- 6. kader — dunne omlijning, filmisch ---------- */
+.tk-kader{
+  border:.055em solid rgba(255,255,255,.9);
+  padding:.6em 1em .68em; background:rgba(0,0,0,.28);
+}
+.tk-kader .streep{display:none}
+.tk-kader .titel{text-shadow:0 .02em .2em rgba(0,0,0,.6)}
+
+/* ---------- 7. onderstreept — dikke accentlijn onder de titel ---------- */
+.tk-onderstreept .titel{
+  display:inline-block; padding-bottom:.14em;
+  border-bottom:.1em solid var(--accent,#2dd4bf);
+  text-shadow:0 .03em .28em rgba(0,0,0,.8);
+}
+.tk-onderstreept .streep{display:none}
+.tk-onderstreept .onder{margin-top:.42em;text-shadow:0 .02em .2em rgba(0,0,0,.8)}
+
+/* ---------- 8. badge — compacte pil, voor korte labels ---------- */
+.tk-badge{
+  background:var(--accent,#2dd4bf); color:#08120f;
+  padding:.3em .7em .34em; border-radius:10em;
+  box-shadow:0 .18em .6em rgba(0,0,0,.45);
+}
+.tk-badge .titel{font-size:.62em;letter-spacing:-.01em}
+.tk-badge .eyebrow{display:none}
+.tk-badge .onder{display:none}
+.tk-badge .streep{display:none}
+
+/* ---------- 9. filmisch — gespatieerde kapitalen tussen twee lijnen ---------- */
+.tk-filmisch{max-width:74%;text-align:center;
+  border-top:.028em solid rgba(255,255,255,.75);
+  border-bottom:.028em solid rgba(255,255,255,.75);
+  padding:.5em .9em .55em}
+.tk-filmisch .titel{font-size:.78em;font-weight:600;letter-spacing:.16em;
+  text-transform:uppercase;text-shadow:0 .03em .3em rgba(0,0,0,.7)}
+.tk-filmisch .eyebrow{font-size:.2em;letter-spacing:.34em;margin-bottom:.5em}
+.tk-filmisch .onder{font-size:.3em;letter-spacing:.08em;margin-top:.45em}
+.tk-filmisch .streep{display:none}
+
+/* ---------- 10. blok — accentkleur als vlak achter de tekst ---------- */
+.tk-blok{background:var(--accent,#2dd4bf);color:#07100f;
+  padding:.42em .8em .5em;border-radius:.1em;
+  box-shadow:0 .3em .9em rgba(0,0,0,.45)}
+.tk-blok .eyebrow{color:rgba(7,16,15,.78)}
+.tk-blok .onder{opacity:.78}
+.tk-blok .streep{background:rgba(7,16,15,.65)}

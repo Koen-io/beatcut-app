@@ -1,0 +1,2211 @@
+<!doctype html>
+<html lang="nl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>Studio — BeatCut Video Editor</title>
+<!-- Exact dezelfde titelstijlen als brands/sjablonen/titel.html gebruikt. -->
+<link rel="stylesheet" href="/ui.css">
+<link rel="stylesheet" href="/titelstijlen.css">
+<script src="/ui.js"></script>
+<style>
+/* ==================================================================
+   Studio — de volledige editor
+
+   Kleuren, letters, glas, knoppen en de themaschakelaar komen uit
+   `/ui.css`. Hier staat alleen wat eigen is aan dit scherm.
+
+   Eén afwijking van het thema, met opzet: het vlak achter de speler
+   blijft in beide standen neutraal donker (`--stage`). Kleur beoordeel
+   je niet tegen een witte achtergrond — elke editor doet dit zo.
+
+   Knoppen zijn minstens 36px hoog: dat is de maat waarop iemand die de
+   tool niet kent zonder aarzelen durft te klikken.
+================================================================== */
+html,body{height:100%;overflow:hidden}
+body{
+  user-select:none; -webkit-text-size-adjust:100%;
+  /* Geen vaste min-width. Een te ruime ondergrens dwingt horizontale
+     overloop af en dan valt precies datgene buiten beeld wat je nodig hebt. */
+  min-width:820px;
+}
+/* De wassing van ui.css hoort bij een pagina waar je doorheen scrolt.
+   Hier vult de interface het scherm en zou hij alleen maar afleiden. */
+body::before{display:none}
+
+/* ---------------- knoppen ---------------- */
+/* Basis staat in ui.css; hier het formaat dat bij de editor past. */
+.knop{height:36px;padding:0 14px;font-size:13.5px}
+.knop.klein{height:28px;padding:0 10px;font-size:12.5px}
+.knop[disabled]{opacity:.42;pointer-events:none}
+
+/* schakelaar in plaats van vinkje: groter raakvlak, duidelijker aan/uit */
+.schakel{
+  display:inline-flex;align-items:center;gap:9px;cursor:pointer;
+  height:32px;padding:0 10px 0 3px;border-radius:var(--r-m);
+  color:var(--tekst-2);font-size:12.5px;font-weight:500;
+  transition:background var(--snel),color var(--snel);
+}
+.schakel:hover{background:var(--paneel-2);color:var(--tekst)}
+.schakel input{position:absolute;opacity:0;pointer-events:none}
+.schakel .spoor{
+  width:38px;height:22px;border-radius:11px;background:var(--rand-fel);
+  position:relative;transition:background var(--snel);flex-shrink:0;
+  box-shadow:inset 0 1px 2px rgba(0,0,0,.12)
+}
+.schakel .spoor::after{
+  content:"";position:absolute;top:2px;left:2px;width:18px;height:18px;
+  border-radius:50%;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.28);
+  transition:transform var(--snel)
+}
+.schakel input:checked + .spoor{background:var(--accent)}
+.schakel input:checked + .spoor::after{transform:translateX(16px)}
+
+/* ---------------- lay-out ---------------- */
+#app{display:grid;grid-template-rows:54px 1fr auto;height:100vh}
+
+header{
+  display:flex;align-items:center;gap:10px;padding:0 14px;
+  background:var(--glas);
+  -webkit-backdrop-filter:var(--waas);backdrop-filter:var(--waas);
+  border-bottom:1px solid var(--rand);
+}
+.merk{display:flex;align-items:center;gap:9px;font-weight:600;font-size:15px;letter-spacing:-.012em}
+.merk .stip{width:24px;height:24px;border-radius:7px;flex:none;
+  background:linear-gradient(180deg,var(--accent),var(--accent-diep));
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.3),var(--schaduw-1)}
+.merk small{color:var(--tekst-3);font-weight:400;font-size:12px}
+.rek{flex:1}
+
+main{display:grid;grid-template-columns:minmax(340px,1fr) clamp(272px,25vw,340px);overflow:hidden}
+#scherm{position:relative;display:flex;flex-direction:column;background:var(--stage);overflow:hidden}
+#beeld{flex:1;display:grid;place-items:center;overflow:hidden;padding:16px}
+#doek{position:relative;background:#000;
+  box-shadow:0 0 0 1px var(--rand),0 10px 44px rgba(0,0,0,.34);
+  border-radius:5px;overflow:hidden}
+#doek video{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;
+  opacity:0;transition:opacity .05s linear;
+  /* Ken Burns wordt hier per frame op gezet. Geen CSS-transitie: de
+     afspeelkop bepaalt de stand, niet de browser. */
+  transform-origin:center center;will-change:transform}
+#doek video.actief{opacity:1}
+#warm{position:absolute;inset:0;pointer-events:none;mix-blend-mode:soft-light;opacity:0}
+#overgang{position:absolute;inset:0;pointer-events:none;opacity:0;background:#000}
+
+/* ---------------- titel-voorvertoning ----------------
+   De vormgeving zelf komt uit /titelstijlen.css — hetzelfde bestand dat
+   het rendersjabloon laadt. Hier staat alleen wat de speler eromheen
+   nodig heeft. */
+#overlaylaag{position:absolute;inset:0;pointer-events:none;overflow:hidden}
+#overlaylaag .tk.gekozen{outline:2px solid var(--accent);outline-offset:3px}
+.ov-eind{position:absolute;inset:0;display:flex;flex-direction:column;
+  align-items:center;justify-content:center;text-align:center;color:#fff;
+  background:radial-gradient(ellipse at center, rgba(6,8,11,.62) 0%, rgba(6,8,11,.86) 72%)}
+.ov-eind.gekozen{outline:2px solid var(--accent);outline-offset:-3px}
+.ov-eind b{font-size:1.25em;font-weight:800;letter-spacing:-.03em;line-height:1}
+.ov-eind span{font-size:.42em;opacity:.8;margin-top:.5em}
+.ov-streep{height:.06em;border-radius:.03em;margin-top:.5em;width:1.3em}
+
+/* stijlkiezer met echte miniatuur-voorbeelden */
+.stijlraster{display:grid;grid-template-columns:repeat(2,1fr);gap:7px}
+.stijltegel{border:1px solid var(--rand-fel);border-radius:var(--r-m);
+  background:var(--stage);overflow:hidden;padding:0;transition:border-color .13s}
+.stijltegel:hover{border-color:var(--rand-licht)}
+.stijltegel.aan{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent)}
+.stijltegel .doekje{height:54px;position:relative;overflow:hidden;
+  background:linear-gradient(135deg,#33404d,#1b2530 60%,#2b3a2f)}
+.stijltegel .doekje .tk{font-size:11px;max-width:86%}
+.stijltegel .naam{font-size:11px;font-weight:600;padding:5px 6px;color:var(--tekst-2)}
+.stijltegel.aan .naam{color:var(--tekst)}
+input[type=color]{width:100%;height:42px;padding:3px;border-radius:var(--r-m);
+  background:var(--bg);border:1px solid var(--rand-fel);cursor:pointer}
+#leeg{position:absolute;color:var(--tekst-3);font-size:14px;text-align:center;line-height:1.9}
+
+/* ---------------- transport ---------------- */
+#transport{
+  height:72px;flex-shrink:0;display:flex;align-items:center;gap:16px;
+  padding:0 20px;background:var(--paneel);border-top:1px solid var(--rand);
+}
+.tp{
+  width:44px;height:44px;border-radius:50%;display:grid;place-items:center;
+  background:var(--paneel-2);border:1px solid var(--rand-fel);color:var(--tekst-2);
+  transition:background .13s,color .13s,border-color .13s;
+}
+.tp:hover{background:var(--paneel-3);color:var(--tekst);border-color:var(--rand-licht)}
+.tp.groot{
+  width:56px;height:56px;background:var(--accent);border-color:transparent;color:var(--op-accent);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.24),var(--schaduw-1)
+}
+.tp.groot:hover{background:var(--accent-hover)}
+.tijdweergave{font:600 20px var(--mono);letter-spacing:-.02em;min-width:132px}
+.tijdweergave small{color:var(--tekst-3);font-weight:400;font-size:15px}
+.shotweergave{font-size:13px;color:var(--tekst-2);text-align:right;line-height:1.35}
+.shotweergave b{display:block;color:var(--tekst);font-weight:600;font-size:14px}
+
+/* ---------------- zijpaneel ---------------- */
+aside{background:var(--glas);
+  -webkit-backdrop-filter:var(--waas);backdrop-filter:var(--waas);
+  border-left:1px solid var(--rand);
+  display:flex;flex-direction:column;overflow:hidden}
+.tabs{display:flex;border-bottom:1px solid var(--rand);flex-shrink:0;padding:0 6px}
+.tab{
+  flex:1;height:44px;font-size:13.5px;color:var(--tekst-3);font-weight:520;
+  border-bottom:2px solid transparent;border-radius:var(--r-s) var(--r-s) 0 0;
+}
+.tab:hover{color:var(--tekst-2);background:var(--paneel-2)}
+.tab.aan{color:var(--tekst);border-bottom-color:var(--accent);font-weight:600}
+.tabs{background:var(--paneel)}
+.paneelinhoud{flex:1;overflow-y:auto;padding:16px}
+.vak{margin-bottom:22px}
+.vak h3{
+  font-size:11px;text-transform:uppercase;letter-spacing:.09em;
+  color:var(--tekst-3);font-weight:700;margin-bottom:10px
+}
+/* Venster voor renderen: voortgang, resultaat of fout. */
+#venster{position:fixed;inset:0;z-index:90;display:flex;align-items:center;
+  justify-content:center;background:light-dark(rgba(240,240,244,.62),rgba(0,0,0,.58));
+  -webkit-backdrop-filter:blur(14px);backdrop-filter:blur(14px);padding:24px}
+.vkaart{background:var(--paneel-3);
+  -webkit-backdrop-filter:var(--waas);backdrop-filter:var(--waas);
+  border:1px solid var(--rand);
+  border-radius:var(--r-l);box-shadow:inset 0 1px 0 var(--glas-glans),var(--schaduw-2);
+  padding:26px 26px 22px;
+  width:min(560px,100%);max-height:88vh;overflow-y:auto}
+.vkaart h2{font-size:19px;font-weight:650;margin-bottom:16px}
+.vbalk{height:8px;border-radius:4px;background:var(--rand);overflow:hidden;margin-bottom:12px}
+.vbalk i{display:block;height:100%;background:var(--accent);border-radius:4px;
+  transition:width .5s ease}
+.vstap{font-size:14px;color:var(--tekst)}
+.vklein{font-family:var(--mono);font-size:12px;color:var(--tekst-3);margin-top:4px}
+.voordeel{font-size:14px;font-weight:600;margin-bottom:12px}
+.voordeel.ok{color:var(--goed)} .voordeel.let{color:var(--waarschuwing)}
+.voordeel.fout{color:var(--fout)}
+.vbevinding{font-size:12.5px;line-height:1.5;padding:8px 11px;border-radius:var(--r-s);
+  margin-bottom:6px;background:var(--paneel-2);border-left:3px solid var(--waarschuwing)}
+.vbevinding.fout{border-left-color:var(--fout)}
+.vpreview{width:100%;border-radius:var(--r-m);margin:14px 0 4px;background:var(--stage);
+  max-height:44vh}
+.vknoppen{display:flex;gap:8px;justify-content:flex-end;margin-top:16px}
+
+/* Uitklapbare groep. Standaard dicht: wie een shot aanklikt wil eerst zien
+   wát er is, niet meteen twaalf schuifjes. De samenvatting rechts laat de
+   huidige stand zien zodat je niet hoeft open te klappen om te kijken. */
+.vouw{margin-bottom:10px;border:1px solid var(--rand);border-radius:var(--r-m);
+  background:transparent;overflow:hidden}
+.vouw>summary{list-style:none;cursor:pointer;padding:12px 14px;
+  display:flex;align-items:center;gap:10px;user-select:none}
+.vouw>summary::-webkit-details-marker{display:none}
+.vouw>summary:hover{background:var(--paneel-2)}
+.vouw>summary h3{margin:0;flex:none}
+.vouw>summary .sam{flex:1;text-align:right;font-family:var(--mono);
+  font-size:11.5px;color:var(--tekst-3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.vouw>summary .pijl{flex:none;transition:transform .15s;color:var(--tekst-3)}
+.vouw[open]>summary{border-bottom:1px solid var(--rand);background:var(--paneel-2)}
+.vouw[open]>summary .pijl{transform:rotate(90deg)}
+.vouw[open]>summary .sam{display:none}
+.vouwinhoud{padding:14px}
+.rij{display:flex;justify-content:space-between;align-items:baseline;gap:10px;
+  padding:7px 0;font-size:13px;border-bottom:1px solid var(--rand)}
+.rij:last-child{border-bottom:0}
+.rij span:first-child{color:var(--tekst-2)}
+.rij span:last-child{font-family:var(--mono);color:var(--tekst);text-align:right}
+.hint{color:var(--tekst-3);font-size:12px;line-height:1.6;margin-top:9px}
+
+.balk{height:6px;border-radius:3px;background:var(--rand);overflow:hidden;margin-top:4px}
+.balk i{display:block;height:100%;background:var(--accent);border-radius:3px}
+.balk i.min{background:var(--fout)}
+
+label.veld{display:block;margin-bottom:14px}
+label.veld em{display:block;font-style:normal;font-size:11px;font-weight:700;
+  color:var(--tekst-3);margin-bottom:6px;text-transform:uppercase;letter-spacing:.08em}
+input[type=text],input[type=number],select,textarea{
+  width:100%;background:var(--bg);border:1px solid var(--rand-fel);
+  border-radius:var(--r-m);padding:10px 12px;color:var(--tekst);
+  font:inherit;font-size:14px;outline:none;height:42px;
+}
+select{cursor:pointer;appearance:none;
+  background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='8' fill='none' stroke='%239aa4b2' stroke-width='1.8'><path d='M1 1l5 5 5-5'/></svg>");
+  background-repeat:no-repeat;background-position:right 13px center;padding-right:34px}
+textarea{resize:vertical;min-height:74px;height:auto}
+input:focus,select:focus,textarea:focus{border-color:var(--accent-diep);
+  box-shadow:0 0 0 3px var(--accent-zacht)}
+
+/* stijlkiezer */
+.stijlkaart{
+  display:block;width:100%;text-align:left;padding:11px 13px;margin-bottom:8px;
+  border:1px solid var(--rand-fel);border-radius:var(--r-m);background:var(--paneel-2);
+  transition:border-color .13s,background .13s;
+}
+.stijlkaart:hover{border-color:var(--rand-licht);background:var(--paneel-3)}
+.stijlkaart.aan{border-color:var(--accent);background:var(--accent-zacht)}
+.stijlkaart b{display:block;font-size:14px;font-weight:600;margin-bottom:3px}
+.stijlkaart span{display:block;font-size:12px;color:var(--tekst-3);line-height:1.5}
+.stijlkaart em{font-style:normal;font-family:var(--mono);font-size:11px;color:var(--accent)}
+
+/* schuifregelaar voor de duur */
+.schuif{display:flex;align-items:center;gap:12px}
+.schuif input[type=range]{
+  flex:1;height:26px;padding:0;background:none;border:0;appearance:none;cursor:pointer
+}
+.schuif input[type=range]::-webkit-slider-runnable-track{
+  height:6px;border-radius:3px;
+  background:linear-gradient(var(--accent),var(--accent)) 0/var(--vul,50%) 100% no-repeat, var(--rand-fel)
+}
+.schuif input[type=range]::-webkit-slider-thumb{
+  appearance:none;width:22px;height:22px;border-radius:50%;margin-top:-8px;
+  background:#fff;border:2px solid var(--accent);box-shadow:0 2px 6px rgba(0,0,0,.5);
+  transition:transform .1s
+}
+.schuif input[type=range]:hover::-webkit-slider-thumb{transform:scale(1.12)}
+.schuif input[type=range]:active::-webkit-slider-thumb{transform:scale(1.2)}
+.schuif output{
+  font:600 15px var(--mono);min-width:56px;text-align:right;color:var(--tekst)
+}
+.schuifmerk{display:flex;justify-content:space-between;font-size:11px;
+  color:var(--tekst-3);font-family:var(--mono);margin-top:2px;padding:0 2px}
+
+/* beeldverhouding als drie visuele knoppen */
+.vormen{display:flex;gap:8px}
+.vormknop{
+  flex:1;padding:12px 6px 10px;border:1px solid var(--rand-fel);border-radius:var(--r-m);
+  background:var(--paneel-2);display:flex;flex-direction:column;align-items:center;gap:8px;
+  transition:border-color .13s,background .13s
+}
+.vormknop:hover{border-color:var(--rand-licht);background:var(--paneel-3)}
+.vormknop.aan{border-color:var(--accent);background:var(--accent-zacht)}
+.vormknop .kader{border:2px solid var(--tekst-3);border-radius:3px;transition:border-color .13s}
+.vormknop.aan .kader{border-color:var(--accent)}
+.vormknop b{font-size:13px;font-weight:600}
+.vormknop span{font-size:10px;color:var(--tekst-3);line-height:1.3;text-align:center}
+
+/* kandidaten */
+.kandidaat{
+  display:flex;gap:10px;align-items:center;padding:7px;margin-bottom:6px;
+  border:1px solid var(--rand);border-radius:var(--r-m);background:var(--paneel-2);
+  cursor:pointer;transition:border-color .13s,background .13s;
+}
+.kandidaat:hover{border-color:var(--accent);background:var(--paneel-3)}
+.kandidaat .mini{width:76px;height:43px;border-radius:4px;background:#000 no-repeat;flex-shrink:0}
+.kandidaat .txt{flex:1;min-width:0;font-size:12px}
+.kandidaat .txt b{display:block;font-size:13px;font-weight:600}
+.kandidaat .txt span{color:var(--tekst-3);font-family:var(--mono);font-size:11px}
+
+/* cliplijst */
+.cliprij{display:flex;align-items:center;gap:10px;padding:6px;border-radius:var(--r-s)}
+.cliprij:hover{background:var(--paneel-2)}
+.cliprij.uit{opacity:.4}
+.cliprij .mini{width:56px;height:32px;border-radius:3px;background:#000 no-repeat}
+.cliprij .txt{flex:1;font-size:12px;min-width:0}
+.cliprij .txt b{display:block;font-weight:600;font-size:13px}
+.cliprij .txt span{color:var(--tekst-3);font-family:var(--mono);font-size:11px}
+
+/* ---------------- tijdlijn ---------------- */
+#tijdlijn{background:var(--paneel);border-top:1px solid var(--rand);
+  display:grid;grid-template-rows:48px auto;overflow:hidden}
+.tl-balk{display:flex;align-items:center;gap:6px;padding:0 12px;
+  border-bottom:1px solid var(--rand);font-size:13px;color:var(--tekst-3)}
+.zoom{display:flex;align-items:center;gap:4px}
+.zoom button{width:32px;height:32px;border-radius:var(--r-s);
+  background:var(--paneel-2);border:1px solid var(--rand-fel);
+  display:grid;place-items:center;color:var(--tekst-2);font-size:17px;line-height:1}
+.zoom button:hover{color:var(--tekst);background:var(--paneel-3)}
+.zoom span{min-width:58px;text-align:center;font-family:var(--mono);font-size:12px}
+
+#tl-scroll{overflow-x:auto;overflow-y:hidden;position:relative}
+#tl-inhoud{position:relative;min-width:100%}
+
+.liniaal{height:26px;position:relative;border-bottom:1px solid var(--rand);
+  background:var(--paneel-2);cursor:pointer}
+.liniaal .tik{position:absolute;top:0;bottom:0;border-left:1px solid var(--rand-fel)}
+.liniaal .tik b{position:absolute;left:5px;top:6px;font:400 11px var(--mono);color:var(--tekst-3)}
+
+.spoor{position:relative;border-bottom:1px solid var(--rand)}
+.spoor-naam{position:absolute;left:0;top:0;bottom:0;width:0;z-index:5;pointer-events:none}
+.spoor-naam i{position:sticky;left:8px;display:inline-block;margin-top:6px;
+  font:700 9px var(--sans);text-transform:uppercase;letter-spacing:.1em;
+  color:var(--tekst-3);background:var(--paneel-3);padding:3px 6px;
+  border-radius:3px;font-style:normal}
+#spoor-video{height:84px;background:var(--paneel-2)}
+#spoor-audio{height:56px;background:var(--paneel-2)}
+#spoor-overlay{height:28px;background:var(--paneel-2)}
+
+.beat{position:absolute;top:0;bottom:0;width:1px;background:var(--rand);pointer-events:none}
+.beat.maat{background:rgba(255,255,255,.13)}
+.beat.drop{background:var(--waarschuwing);width:2px}
+/* De energie van de muziek als bandje áchter de beelden. Op licht moet dat
+   zachter dan op donker, anders kijk je door een gekleurd filter naar je
+   eigen materiaal.
+
+   Let op: de sterkte zit in de kleur, niet in `opacity`. `light-dark()`
+   geldt alleen waar een kleur verwacht wordt; in `opacity` is het ongeldig
+   en dan valt de hele regel weg — het bandje stond daardoor pontificaal
+   op volle sterkte over de beelden heen. */
+.sectie{position:absolute;top:0;height:100%;pointer-events:none}
+.sectie.rustig{background:light-dark(rgba(59,130,246,.11), rgba(59,130,246,.17))}
+.sectie.opbouw{background:light-dark(rgba(139,92,246,.11), rgba(139,92,246,.17))}
+.sectie.hoog{background:light-dark(rgba(244,63,94,.10), rgba(244,63,94,.16))}
+
+.blok{position:absolute;top:6px;bottom:6px;border-radius:var(--r-s);overflow:hidden;
+  background:var(--paneel-3);border:1px solid var(--rand-fel);cursor:grab;
+  box-shadow:var(--schaduw-1);
+  transition:border-color var(--snel),box-shadow var(--snel)}
+.blok:hover{border-color:var(--rand-licht);z-index:2}
+.blok.gekozen{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent),0 6px 20px color-mix(in oklab,var(--accent) 30%,transparent);z-index:3}
+.blok.vast{border-color:var(--vast)}
+.blok.sleept{cursor:grabbing;opacity:.7;z-index:10}
+.blok .strook{position:absolute;inset:0;background-repeat:no-repeat;background-size:auto 100%;opacity:.92}
+.blok .etiket{position:absolute;left:0;right:0;bottom:0;padding:3px 6px;
+  font:600 10px var(--mono);color:#fff;background:linear-gradient(transparent,rgba(0,0,0,.92));
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;pointer-events:none}
+.blok .slot{position:absolute;top:3px;right:4px;font-size:11px;color:var(--vast)}
+.greep{position:absolute;top:0;bottom:0;width:min(8px,26%);cursor:ew-resize;z-index:4}
+.greep.links{left:0} .greep.rechts{right:0}
+.greep:hover{background:color-mix(in oklab,var(--accent) 45%,transparent)}
+
+#golf{position:absolute;inset:0;width:100%;height:100%}
+.olay{position:absolute;top:3px;bottom:3px;border-radius:4px;cursor:grab;
+  background:rgba(167,139,250,.28);border:1px solid var(--vast);
+  font:600 10px var(--sans);color:#ede9fe;padding:0 7px;line-height:20px;
+  overflow:hidden;white-space:nowrap;text-overflow:ellipsis;
+  transition:border-color .1s,box-shadow .1s}
+.olay:hover{background:rgba(167,139,250,.4)}
+.olay.gekozen{border-color:var(--accent);color:#fff;
+  box-shadow:0 0 0 1px var(--accent),0 4px 14px color-mix(in oklab,var(--accent) 32%,transparent);z-index:3}
+
+#kop{position:absolute;top:0;bottom:0;width:2px;background:var(--accent);
+  z-index:20;pointer-events:none;box-shadow:0 0 10px color-mix(in oklab,var(--accent) 70%,transparent)}
+#kop::before{content:"";position:absolute;top:0;left:-6px;
+  border-left:7px solid transparent;border-right:7px solid transparent;
+  border-top:9px solid var(--accent)}
+
+/* ---------------- toast en laden ---------------- */
+#toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%) translateY(80px);
+  background:var(--paneel-3);border:1px solid var(--rand-licht);border-radius:var(--r-m);
+  padding:12px 18px;font-size:13px;box-shadow:var(--schaduw);opacity:0;
+  transition:all .24s cubic-bezier(.2,.8,.2,1);z-index:100;pointer-events:none;max-width:64vw}
+#toast.aan{opacity:1;transform:translateX(-50%) translateY(0)}
+#toast.fout{border-color:var(--fout);color:#fecaca}
+#laden{position:fixed;inset:0;background:var(--bg);display:grid;place-items:center;
+  z-index:200;transition:opacity .3s}
+#laden.weg{opacity:0;pointer-events:none}
+.spinner{width:30px;height:30px;border:2.5px solid var(--rand-fel);
+  border-top-color:var(--accent);border-radius:50%;animation:draai .7s linear infinite;margin:0 auto}
+@keyframes draai{to{transform:rotate(360deg)}}
+
+/* ---------------- krappe schermen ----------------
+   Liever labels inkorten dan de interface buiten beeld duwen. */
+@media (max-width:1240px){
+  header kbd, .tl-balk kbd{display:none}
+  .knop{padding:0 12px;gap:6px}
+}
+@media (max-width:1080px){
+  .verkort{display:none}                    /* woorden die weg mogen */
+  .schakel{padding-right:8px;font-size:12px;gap:8px}
+  .tijdweergave{min-width:112px;font-size:18px}
+  header{gap:8px;padding:0 12px}
+}
+@media (max-width:920px){
+  .shotweergave{display:none}
+  #transport{gap:10px;padding:0 12px}
+}
+</style>
+</head>
+<body>
+<div id="laden"><div style="text-align:center">
+  <div class="spinner"></div>
+  <div style="margin-top:14px;font-size:13px;color:var(--tekst-3)">Project laden…</div>
+</div></div>
+
+<div id="app">
+  <header>
+    <button class="knop" id="btn-start" title="Terug naar het startscherm" style="padding:0 12px">
+      <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"
+        stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg></button>
+    <div class="merk"><span class="stip"></span> Studio <small id="projectnaam"></small></div>
+    <div class="rek"></div>
+    <button class="knop" id="btn-terug" title="Ongedaan maken">
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7"
+        stroke-linecap="round" stroke-linejoin="round"><path d="M3 8h7a3.5 3.5 0 010 7H7"/><path d="M6 5L3 8l3 3"/></svg>
+      Ongedaan<kbd>⌘Z</kbd></button>
+    <button class="knop" id="btn-snel" title="Rendert alleen de eerste 15 seconden">
+      Snelle <span class="verkort">preview</span><kbd>15s</kbd></button>
+    <button class="knop" id="btn-opslaan">Opslaan<kbd>⌘S</kbd></button>
+    <button class="knop primair" id="btn-render">
+      <svg width="15" height="15" viewBox="0 0 16 16" fill="currentColor"><path d="M3 2l11 6-11 6z"/></svg>
+      Renderen</button>
+    <div data-thema-schakelaar></div>
+  </header>
+
+  <main>
+    <section id="scherm">
+      <div id="beeld">
+        <div id="doek">
+          <video id="v1" muted playsinline preload="auto"></video>
+          <video id="v2" muted playsinline preload="auto"></video>
+          <!-- Warmte uit de kleurbewerking; CSS-filters kennen geen kleurbalans. -->
+          <div id="warm"></div>
+          <!-- Dip naar zwart of wit aan het begin van een shot. -->
+          <div id="overgang"></div>
+          <div id="overlaylaag"></div>
+        </div>
+        <div id="leeg">Nog geen montage.<br>Kies rechts een stijl en klik <b>Monteer opnieuw</b>.</div>
+      </div>
+      <div id="transport">
+        <button class="tp" id="btn-begin" title="Naar het begin (Home)">
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M4 3h2v10H4zM13 3v10l-7-5z"/></svg></button>
+        <button class="tp" id="btn-vorig" title="Vorig shot ([)">
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M12 3v10L5 8z"/><rect x="3" y="3" width="1.8" height="10"/></svg></button>
+        <button class="tp groot" id="btn-speel" title="Afspelen / pauzeren (spatie)">
+          <svg width="20" height="20" viewBox="0 0 20 20" fill="currentColor"><path id="speel-icoon" d="M4 2l14 8-14 8z"/></svg></button>
+        <button class="tp" id="btn-volgend" title="Volgend shot (])">
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M4 3v10l7-5z"/><rect x="11.2" y="3" width="1.8" height="10"/></svg></button>
+        <div class="tijdweergave"><span id="tijd-nu">0:00.00</span><small id="tijd-eind"> / 0:00</small></div>
+        <div class="rek"></div>
+        <div class="shotweergave"><b id="shot-nu">—</b><span id="shot-clip"></span></div>
+      </div>
+    </section>
+
+    <aside>
+      <div class="tabs">
+        <button class="tab aan" data-tab="montage">Montage</button>
+        <button class="tab" data-tab="shot">Shot</button>
+        <button class="tab" data-tab="titels">Titels</button>
+        <button class="tab" data-tab="clips">Clips</button>
+        <button class="tab" data-tab="muziek">Muziek</button>
+      </div>
+      <div class="paneelinhoud" id="paneel"></div>
+    </aside>
+  </main>
+
+  <section id="tijdlijn">
+    <div class="tl-balk">
+      <div class="zoom">
+        <button id="zoom-uit" title="Uitzoomen">−</button>
+        <span id="zoom-tekst">10 px/s</span>
+        <button id="zoom-in" title="Inzoomen">+</button>
+      </div>
+      <label class="schakel" title="Snedes klikken vast op de maat van de muziek">
+        <input type="checkbox" id="snap" checked><span class="spoor"></span>
+        Vastklikken <span class="verkort">op de tel</span></label>
+      <label class="schakel" title="Toon rustig, opbouw en hoog als gekleurde banden">
+        <input type="checkbox" id="toon-secties" checked><span class="spoor"></span>
+        Muzieksecties</label>
+      <div class="rek"></div>
+      <span id="tl-status"></span>
+    </div>
+    <div id="tl-scroll"><div id="tl-inhoud">
+      <div class="liniaal" id="liniaal"></div>
+      <div class="spoor" id="spoor-video"><div class="spoor-naam"><i>video</i></div></div>
+      <div class="spoor" id="spoor-overlay"><div class="spoor-naam"><i>overlay</i></div></div>
+      <div class="spoor" id="spoor-audio"><div class="spoor-naam"><i>muziek</i></div><canvas id="golf"></canvas></div>
+      <div id="kop"></div>
+    </div></div>
+  </section>
+</div>
+
+<div id="toast"></div>
+
+<script>
+"use strict";
+
+const S = {
+  project:null, edl:null, clips:{}, muziek:null, golf:[], segmenten:[], gewichten:{},
+  projectnaam:'', stijlen:[], stijl:'actie', vorm:'16:9', doelduur:null, uitgesloten:new Set(),
+  titels:{titel:'', eyebrow:'', ondertitel:'', slottekst:''}, gekozenOverlay:null,
+  pxs:10, tijd:0, speelt:false, gekozen:null, vuil:false, sleep:null,
+  actieveVideo:null, geschiedenis:[], kandidaten:null, review:null,
+  openSecties:new Set(),
+};
+
+const $ = s => document.querySelector(s);
+const $$ = s => [...document.querySelectorAll(s)];
+const klem = (v,a,b) => Math.max(a, Math.min(b, v));
+const tijdTekst = (t, fijn) => {
+  if (!isFinite(t)) t = 0;
+  const m = Math.floor(t/60), s = t%60;
+  return fijn ? `${m}:${s.toFixed(2).padStart(5,'0')}` : `${m}:${Math.floor(s).toString().padStart(2,'0')}`;
+};
+
+function toast(bericht, fout){
+  const el = $('#toast');
+  el.textContent = bericht;
+  el.className = 'aan' + (fout ? ' fout' : '');
+  clearTimeout(el._t);
+  el._t = setTimeout(()=> el.className = '', 3200);
+}
+
+// Elk verzoek draagt het project mee, zodat de server tussen projecten kan
+// wisselen zonder herstart.
+function metProject(pad){
+  if (!S.projectnaam) return pad;
+  return pad + (pad.includes('?') ? '&' : '?') + 'project=' + encodeURIComponent(S.projectnaam);
+}
+
+const media = pad => metProject(pad);
+
+async function api(pad, opties){
+  const r = await fetch(metProject(pad), opties);
+  const d = await r.json().catch(()=>({}));
+  if (!r.ok) throw new Error(d.fout || r.statusText);
+  return d;
+}
+
+/* ---------- ongedaan maken ---------- */
+function bewaar(){
+  if (!S.edl) return;
+  S.geschiedenis.push(JSON.stringify(S.edl));
+  if (S.geschiedenis.length > 40) S.geschiedenis.shift();
+}
+function ongedaan(){
+  const vorig = S.geschiedenis.pop();
+  if (!vorig){ toast('Niets meer om ongedaan te maken.'); return; }
+  S.edl = JSON.parse(vorig);
+  S.gekozen = null; S.vuil = true;
+  tekenAlles(); toonPaneel(); ganaar(S.tijd, true);
+  toast('Ongedaan gemaakt.');
+}
+
+/* ==================================================================
+   Laden
+================================================================== */
+async function laad(){
+  const q = new URLSearchParams(location.search);
+  S.projectnaam = q.get('project') || '';
+  // Clips die op het startscherm zijn uitgevinkt.
+  (q.get('uit') || '').split(',').filter(Boolean).forEach(id => S.uitgesloten.add(id));
+
+  S.project = await api('/api/project');
+  S.project.clips.forEach(c => S.clips[c.id] = c);
+  S.muziek = S.project.muziek;
+  S.golf = S.project.golfvorm || [];
+  S.segmenten = S.project.segmenten || [];
+  S.gewichten = S.project.gewichten || {};
+  S.stijl = S.project.stijl || 'actie';
+  $('#projectnaam').textContent = S.project.project;
+  try { S.stijlen = await api('/api/stijlen'); } catch { S.stijlen = []; }
+  try {
+    S.edl = await api('/api/edl');
+    S.stijl = S.edl.stijl || S.stijl;
+    const c = S.edl.canvas;
+    S.vorm = c.breedte === c.hoogte ? '1:1' : (c.hoogte > c.breedte ? '9:16' : '16:9');
+  } catch { S.edl = null; }
+  tekenAlles();
+  $('#laden').classList.add('weg');
+}
+
+/* ==================================================================
+   Tijdlijn
+================================================================== */
+function duur(){
+  if (!S.edl || !S.edl.video.length) return S.muziek?.duur || 60;
+  return Math.max(...S.edl.video.map(b => b.tijdlijn_start + b.duur));
+}
+const naarX = t => t * S.pxs;
+const naarT = x => x / S.pxs;
+
+function tekenAlles(){
+  const D = duur();
+  $('#tl-inhoud').style.width = Math.max(naarX(D) + 80, 100) + 'px';
+  $('#zoom-tekst').textContent = S.pxs.toFixed(S.pxs<10?1:0) + ' px/s';
+  $('#tijd-eind').textContent = ' / ' + tijdTekst(D);
+  tekenLiniaal(D); tekenRaster(D); tekenBlokken(); tekenGolf(D); tekenOverlays();
+  zetDoek(); zetKop();
+  // Verzet je een schuifje, dan hoor je het resultaat meteen in beeld te zien
+  // en niet pas na een render.
+  effectenOp(S.tijd);
+  $('#leeg').style.display = S.edl ? 'none' : 'block';
+  $('#tl-status').textContent = S.edl
+    ? `${S.edl.video.length} shots · ${D.toFixed(1)}s` + (S.vuil ? ' · niet opgeslagen' : '')
+    : 'geen montage';
+}
+
+function tekenLiniaal(D){
+  const el = $('#liniaal'); el.innerHTML = '';
+  const stap = [0.5,1,2,5,10,15,30,60].find(s => s*S.pxs >= 60) || 60;
+  for (let t=0; t<=D; t+=stap){
+    const d = document.createElement('div');
+    d.className='tik'; d.style.left = naarX(t)+'px';
+    d.innerHTML = `<b>${tijdTekst(t)}</b>`;
+    el.appendChild(d);
+  }
+}
+
+function tekenRaster(D){
+  const offset = S.edl?.audio?.[0]?.bron_start || 0;
+  ['#spoor-video','#spoor-audio'].forEach(sel=>{
+    const el = $(sel);
+    [...el.querySelectorAll('.beat,.sectie')].forEach(n=>n.remove());
+    if (!S.muziek?.beats) return;
+    if ($('#toon-secties').checked){
+      (S.muziek.secties||[]).forEach(s=>{
+        const a = s.start-offset, b = s.eind-offset;
+        if (b<0 || a>D) return;
+        const d = document.createElement('div');
+        d.className = 'sectie '+s.niveau;
+        d.style.left = naarX(Math.max(0,a))+'px';
+        d.style.width = naarX(Math.min(D,b)-Math.max(0,a))+'px';
+        el.appendChild(d);
+      });
+    }
+    const toonTellen = S.pxs > 14;
+    const maten = new Set((S.muziek.maten||[]).map(m=>m.toFixed(3)));
+    const drops = new Set((S.muziek.drops||[]).map(m=>m.toFixed(1)));
+    S.muziek.beats.forEach(b=>{
+      const t = b-offset;
+      if (t < -0.01 || t > D) return;
+      const isMaat = maten.has(b.toFixed(3));
+      if (!isMaat && !toonTellen) return;
+      const d = document.createElement('div');
+      d.className = 'beat'+(isMaat?' maat':'')+(drops.has(b.toFixed(1))?' drop':'');
+      d.style.left = naarX(t)+'px';
+      el.appendChild(d);
+    });
+  });
+}
+
+/* De miniatuurstrook is 24 beelden breed. Om het juiste beeld te tonen
+   schuiven we de achtergrond op naar de positie binnen de clip. */
+const STROOK_N = 24;
+function strookPositie(clip, bronStart, hoogtePx){
+  if (!clip?.duur) return '0 center';
+  const beeldB = 160 * (hoogtePx/90);
+  const idx = klem(Math.floor(bronStart / clip.duur * STROOK_N), 0, STROOK_N-1);
+  return `-${(idx*beeldB).toFixed(0)}px center`;
+}
+
+/* Voor vaste tegels (kandidaten, cliplijst): één beeld vult de tegel.
+   De positie moet exact op een frame vallen, anders zie je twee halve. */
+function tegelStrook(clip, bronStart){
+  const idx = clip?.duur
+    ? klem(Math.round(bronStart / clip.duur * (STROOK_N-1)), 0, STROOK_N-1)
+    : Math.round(0.4 * (STROOK_N-1));
+  return `background-size:${STROOK_N*100}% 100%;`
+       + `background-position:${(idx/(STROOK_N-1)*100).toFixed(3)}% center`;
+}
+
+function tekenBlokken(){
+  const el = $('#spoor-video');
+  [...el.querySelectorAll('.blok')].forEach(n=>n.remove());
+  if (!S.edl) return;
+  S.edl.video.forEach((b,i)=>{
+    const clip = S.clips[b.clip] || {};
+    const d = document.createElement('div');
+    d.className = 'blok'+(S.gekozen===i?' gekozen':'')+(b.vast?' vast':'');
+    d.style.left = naarX(b.tijdlijn_start)+'px';
+    d.style.width = Math.max(6, naarX(b.duur))+'px';
+    d.dataset.i = i;
+    const strook = document.createElement('div');
+    strook.className='strook';
+    strook.style.backgroundImage = `url(${media(`/media/thumb/${b.clip}.jpg`)})`;
+    strook.style.backgroundPosition = strookPositie(clip, b.bron_start, 72);
+    d.appendChild(strook);
+    const e = document.createElement('div');
+    e.className='etiket'; e.textContent = `${b.clip} · ${b.duur.toFixed(1)}s`;
+    d.appendChild(e);
+    if (b.vast){ const s=document.createElement('div'); s.className='slot'; s.textContent='●'; d.appendChild(s); }
+    const gl=document.createElement('div'); gl.className='greep links';
+    const gr=document.createElement('div'); gr.className='greep rechts';
+    d.append(gl,gr);
+    el.appendChild(d);
+  });
+}
+
+function tekenOverlays(){
+  const el = $('#spoor-overlay');
+  [...el.querySelectorAll('.olay')].forEach(n=>n.remove());
+  (S.edl?.overlay||[]).forEach((o,i)=>{
+    const d=document.createElement('div');
+    d.className = 'olay' + (S.gekozenOverlay===i ? ' gekozen' : '');
+    d.style.left = naarX(o.tijdlijn_start)+'px';
+    d.style.width = Math.max(14, naarX(o.duur))+'px';
+    d.dataset.o = i;
+    d.textContent = o.inhoud?.titel || o.soort;
+    const gl=document.createElement('div'); gl.className='greep links';
+    const gr=document.createElement('div'); gr.className='greep rechts';
+    d.append(gl,gr);
+    el.appendChild(d);
+  });
+  tekenOverlayPreview();
+}
+
+/* Overlays live in de speler tekenen.
+   Dezelfde posities en groottes als het sjabloon, zodat wat je hier ziet
+   ook is wat er gerenderd wordt. */
+const OV_MATEN = {klein:0.052, normaal:0.082, groot:0.118};
+const STIJLEN = [
+  ['glas',        'Glaskaart'],
+  ['minimaal',    'Minimaal'],
+  ['balk',        'Balk onderin'],
+  ['lowerthird',  'Lower third'],
+  ['statement',   'Statement'],
+  ['kader',       'Kader'],
+  ['onderstreept','Onderstreept'],
+  ['badge',       'Badge'],
+  ['filmisch',    'Filmisch'],
+  ['blok',        'Kleurblok'],
+];
+const OV_POSITIES = {
+  linksboven:   {left:'5.5%', top:'8%'},
+  middenboven:  {left:'50%',  top:'8%',  transform:'translateX(-50%)'},
+  rechtsboven:  {right:'5.5%',top:'8%'},
+  linksmidden:  {left:'5.5%', top:'50%', transform:'translateY(-50%)'},
+  midden:       {left:'50%',  top:'50%', transform:'translate(-50%,-50%)'},
+  rechtsmidden: {right:'5.5%',top:'50%', transform:'translateY(-50%)'},
+  linksonder:   {left:'5.5%', bottom:'8%'},
+  middenonder:  {left:'50%',  bottom:'8%', transform:'translateX(-50%)'},
+  rechtsonder:  {right:'5.5%',bottom:'8%'},
+};
+
+function tekenOverlayPreview(){
+  const laag = $('#overlaylaag');
+  laag.innerHTML = '';
+  if (!S.edl) return;
+  const doekH = $('#doek').clientHeight || 1;
+
+  S.edl.overlay.forEach((o,i)=>{
+    // Alleen tonen wanneer de afspeelkop binnen het blok staat. Een halfdoorzichtige
+    // titel die buiten zijn blok blijft hangen leest als een fout in de video.
+    if (!(S.tijd >= o.tijdlijn_start - .001 && S.tijd < o.tijdlijn_start + o.duur)) return;
+    laag.appendChild(bouwOverlay(o, doekH, S.gekozenOverlay === i));
+  });
+}
+
+function bouwOverlay(o, doekH, gekozen){
+  const inh = o.inhoud || {};
+  const kleur = inh.kleur || '#2dd4bf';
+  const tekstkleur = inh.tekstkleur || '#ffffff';
+
+  if (o.soort === 'eindkaart'){
+    const d = document.createElement('div');
+    d.className = 'ov-eind' + (gekozen ? ' gekozen' : '');
+    d.style.fontSize = (doekH * 0.09) + 'px';
+    d.innerHTML = `<b>${inh.titel || 'Eindkaart'}</b>`
+      + (inh.onder ? `<span>${inh.onder}</span>` : '')
+      + `<div class="ov-streep" style="background:${kleur};width:1.6em;margin-top:.6em"></div>`;
+    return d;
+  }
+
+  const d = document.createElement('div');
+  d.className = `tk tk-${inh.stijl || 'glas'}` + (gekozen ? ' gekozen' : '');
+  d.style.fontSize = (doekH * (OV_MATEN[inh.grootte] || OV_MATEN.normaal)) + 'px';
+  d.style.setProperty('--accent', kleur);
+  d.style.setProperty('--tekst', tekstkleur);
+  Object.entries(OV_POSITIES[inh.positie] || OV_POSITIES.linksonder)
+    .forEach(([k,v]) => d.style[k] = v);
+  if (/^midden/.test(inh.positie || '')) d.style.textAlign = 'center';
+  if (inh.stijl === 'balk'){ d.style.left='0'; d.style.right='0';
+    d.style.top=''; d.style.bottom='0'; d.style.transform=''; }
+  d.innerHTML =
+    (inh.eyebrow ? `<div class="eyebrow">${inh.eyebrow}</div>` : '')
+    + `<div class="titel">${inh.titel || 'Titel'}</div>`
+    + (inh.onder ? `<div class="onder">${inh.onder}</div>` : '')
+    + `<div class="streep"></div>`;
+  return d;
+}
+
+/* Een CSS-variabele als canvas-kleur. `getComputedStyle` levert de kleur al
+   opgelost op — ook die uit `light-dark()` — dus dit volgt het thema vanzelf. */
+function kleurUitThema(naam, alfa){
+  const v = getComputedStyle(document.documentElement).getPropertyValue(naam).trim();
+  if (alfa === undefined) return v || '#000';
+  // `color-mix` doet het werk; zo hoeven we geen kleurnotatie te ontleden.
+  return `color-mix(in srgb, ${v || '#000'} ${Math.round(alfa*100)}%, transparent)`;
+}
+
+function tekenGolf(D){
+  const c=$('#golf'), spoor=$('#spoor-audio');
+  const b=Math.max(1,naarX(D)), h=spoor.clientHeight||56, dpr=window.devicePixelRatio||1;
+  c.width=b*dpr; c.height=h*dpr; c.style.width=b+'px'; c.style.height=h+'px';
+  const g=c.getContext('2d'); g.scale(dpr,dpr); g.clearRect(0,0,b,h);
+  if (!S.golf.length || !S.muziek?.duur) return;
+  const offset=S.edl?.audio?.[0]?.bron_start||0, mid=h/2;
+  // De accentkleur uit het thema, niet een vaste waarde: anders klopt de
+  // golfvorm niet meer zodra iemand naar licht of donker wisselt.
+  g.fillStyle=kleurUitThema('--accent', .5);
+  for (let x=0;x<b;x++){
+    const t=naarT(x)+offset;
+    const idx=Math.floor(t/S.muziek.duur*S.golf.length);
+    if (idx<0||idx>=S.golf.length) continue;
+    const a=S.golf[idx]*(h*0.44);
+    g.fillRect(x, mid-a, 1, a*2);
+  }
+}
+
+function zetKop(){
+  tekenOverlayPreview();
+  $('#kop').style.left = naarX(S.tijd)+'px';
+  $('#tijd-nu').textContent = tijdTekst(S.tijd, true);
+  const i = blokOp(S.tijd);
+  $('#shot-nu').textContent = i>=0 ? `shot ${i+1} van ${S.edl.video.length}` : '—';
+  $('#shot-clip').textContent = i>=0 ? `${S.edl.video[i].clip} · ${S.edl.video[i].duur.toFixed(1)}s` : '';
+}
+
+/* ==================================================================
+   Speler
+================================================================== */
+const audio = new Audio();
+let vA=null, vB=null, huidigBlok=-1, klokStart=0, tijdStart=0, lus=null;
+const eenmalig = (el,ev) => new Promise(r => el.addEventListener(ev, r, {once:true}));
+
+function blokOp(t){
+  if (!S.edl) return -1;
+  return S.edl.video.findIndex(b => t >= b.tijdlijn_start-1e-4 && t < b.tijdlijn_start+b.duur);
+}
+
+function zetDoek(){
+  const el=$('#doek'), c=S.edl?.canvas||{breedte:1920,hoogte:1080}, vak=$('#beeld');
+  const maxB=vak.clientWidth-32, maxH=vak.clientHeight-32;
+  if (maxB<=0||maxH<=0) return;
+  const sch=Math.min(maxB/c.breedte, maxH/c.hoogte);
+  el.style.width=Math.floor(c.breedte*sch)+'px';
+  el.style.height=Math.floor(c.hoogte*sch)+'px';
+}
+
+/* De flits tussen shots kwam hiervandaan.
+
+   De oude versie zette `currentTime` en wisselde meteen het zichtbare
+   element. Een seek is asynchroon, dus het element toonde nog een paar
+   frames lang wat er daarvoor in stond - het shot van twee stappen terug.
+   Dat is precies die flits van vreemd beeldmateriaal.
+
+   Nu: het element wordt eerst volledig klaargezet (bron geladen, gezocht,
+   `seeked` afgewacht) en pas daarna zichtbaar gemaakt. En tijdens het
+   afspelen staat het volgende shot al klaar op het juiste frame, zodat de
+   wissel op de snede zelf niets meer hoeft te wachten. */
+
+// Welk shot in het niet-zichtbare element klaarstaat.
+let voorbereid = -1;
+
+// Wachten op een gebeurtenis, maar nooit oneindig: een gemiste `seeked` mag
+// de speler niet laten hangen.
+const wacht = (el, ev, ms=2500) => Promise.race([
+  new Promise(r => el.addEventListener(ev, r, {once:true})),
+  new Promise(r => setTimeout(r, ms)),
+]);
+
+async function zetKlaar(el, blok, binnen){
+  const bron = media(`/media/proxy/${blok.clip}.mp4`);
+  if (!el.src.includes(`/media/proxy/${blok.clip}.mp4`)){
+    el.src = bron;
+    await wacht(el, 'loadedmetadata');
+  }
+  // Zoeken kan pas als de metadata er is - anders wordt currentTime genegeerd.
+  if (el.readyState < 1) await wacht(el, 'loadedmetadata');
+
+  const doel = bronTijd(blok, binnen || 0);
+  if (Math.abs(el.currentTime - doel) > 0.02){
+    // Luisteraar eerst, dan pas zoeken. Andersom kan `seeked` al voorbij zijn
+    // voordat we luisteren, en dan wacht je voor niets.
+    const klaar = wacht(el, 'seeked');
+    el.currentTime = doel;
+    await klaar;
+    // `seeked` betekent dat de positie klopt, niet dat het beeld al getekend
+    // is. requestVideoFrameCallback vuurt pas als er echt een frame klaarligt;
+    // dat is de sluitsteen tegen een flits bij het wisselen.
+    if (el.requestVideoFrameCallback){
+      await Promise.race([
+        new Promise(r => el.requestVideoFrameCallback(() => r())),
+        new Promise(r => setTimeout(r, 400)),
+      ]);
+    }
+  }
+  el.pause();
+}
+
+function maakZichtbaar(el, i){
+  const oud = S.actieveVideo;
+  vA.classList.toggle('actief', el === vA);
+  vB.classList.toggle('actief', el === vB);
+  S.actieveVideo = el;
+  huidigBlok = i;
+  if (oud && oud !== el) oud.pause();
+}
+
+async function toonBlok(i, binnenTijd){
+  if (i < 0 || !S.edl) return;
+  const b = S.edl.video[i];
+  const ander = (S.actieveVideo === vA) ? vB : vA;
+
+  if (voorbereid === i && !binnenTijd){
+    // Stond al klaar op het juiste frame: wisselen kost nul tijd.
+    maakZichtbaar(ander, i);
+    if (S.speelt) ander.play().catch(()=>{});
+  } else {
+    await zetKlaar(ander, b, binnenTijd);
+    maakZichtbaar(ander, i);
+    if (S.speelt) ander.play().catch(()=>{});
+  }
+  voorbereid = -1;
+
+  // Zet het volgende shot alvast klaar in het element dat nu onzichtbaar is.
+  const vol = S.edl.video[i + 1];
+  if (vol){
+    const reserve = (S.actieveVideo === vA) ? vB : vA;
+    zetKlaar(reserve, vol, 0).then(()=>{ voorbereid = i + 1; }).catch(()=>{});
+  }
+}
+
+/* ==================================================================
+   Wat je ziet is wat je krijgt
+
+   De renderer past Ken Burns, snelheid, beeldvulling, kleurbewerking en
+   overgangen toe met ffmpeg. De speler kan hetzelfde met CSS, en dan zie
+   je je keuze meteen in plaats van pas na een render van een minuut.
+
+   De formules zijn met opzet dezelfde als in `render.py`:
+
+     zoom in     schaal loopt van 1 naar 1+k
+     zoom uit    schaal loopt van 1+k naar 1
+     schuiven    schaal staat vast op 1+k, het beeld verschuift over de
+                 volle overloop — precies de crop die ffmpeg maakt
+
+   Twee dingen zijn een benadering en geen kopie, en dat hoort de
+   gebruiker te weten:
+   - warmte is in ffmpeg een kleurbalans; hier een dun laagje in
+     soft-light. Dichtbij, niet identiek.
+   - de wazige achtergrond bij een staande clip zit alleen in de render;
+     hier zie je zwarte balken.
+================================================================== */
+function bronTijd(b, binnen){
+  // Snelheid hoort er ook hier in: bij 2× loopt de bron twee keer zo snel.
+  return b.bron_start + binnen * (b.snelheid || 1);
+}
+
+function effectenOp(t){
+  const el = S.actieveVideo;
+  const i = blokOp(t);
+  const warm = $('#warm'), over = $('#overgang');
+  if (i < 0 || !el || !S.edl){ if (warm) warm.style.opacity = 0; return; }
+  const b = S.edl.video[i];
+  const binnen = klem(t - b.tijdlijn_start, 0, b.duur);
+  const p = b.duur > 0 ? binnen / b.duur : 0;
+
+  /* ---- Ken Burns ---- */
+  const k = Math.max(0, Math.min(.6, b.zoom_kracht ?? .12));
+  let schaal = 1, tx = 0, ty = 0;
+  const rand = k / 2 * 100;               // overloop aan één kant, in procenten
+  switch (b.zoom){
+    case 'in':     schaal = 1 + k * p; break;
+    case 'uit':    schaal = 1 + k * (1 - p); break;
+    case 'links':  schaal = 1 + k; tx = -rand + 2 * rand * p; break;
+    case 'rechts': schaal = 1 + k; tx =  rand - 2 * rand * p; break;
+    case 'omhoog': schaal = 1 + k; ty = -rand + 2 * rand * p; break;
+    case 'omlaag': schaal = 1 + k; ty =  rand - 2 * rand * p; break;
+  }
+  // Eerst schalen, dan verschuiven: zo is de verschuiving een deel van het
+  // onvergrote beeld en klopt de overloop met wat ffmpeg wegsnijdt.
+  el.style.transform = `translate(${tx.toFixed(3)}%, ${ty.toFixed(3)}%) scale(${schaal.toFixed(4)})`;
+
+  /* ---- beeldvulling ---- */
+  el.style.objectFit = b.vulmodus === 'vul' ? 'cover' : 'contain';
+
+  /* ---- snelheid ---- */
+  const snel = b.snelheid || 1;
+  if (Math.abs(el.playbackRate - snel) > .001) el.playbackRate = snel;
+
+  /* ---- freeze frame ---- */
+  const fps = S.edl.canvas?.fps || 30;
+  if ((b.bevriezen || 0) > 0){
+    const frames = b.frames || Math.round(b.duur * fps);
+    const stil = Math.min(frames - 1, Math.max(1, Math.round(b.bevriezen * fps)));
+    const bevriesVanaf = (frames - stil) / fps;
+    if (binnen >= bevriesVanaf){
+      el.pause();
+      const doel = bronTijd(b, bevriesVanaf);
+      if (Math.abs(el.currentTime - doel) > .05) el.currentTime = doel;
+    } else if (S.speelt && el.paused){
+      el.play().catch(()=>{});
+    }
+  }
+
+  /* ---- overgang naar dit shot ---- */
+  const o = b.overgang_in || {};
+  let dip = 0, dipkleur = '#000';
+  if (o.duur > 0 && binnen < o.duur){
+    const deel = 1 - binnen / o.duur;
+    if (o.soort === 'dip_zwart'){ dip = deel; }
+    else if (o.soort === 'dip_wit'){ dip = deel; dipkleur = '#fff'; }
+    else if (o.soort === 'crossfade'){ dip = deel * .85; }
+  }
+  if (over){ over.style.background = dipkleur; over.style.opacity = dip.toFixed(3); }
+
+  /* ---- kleurbewerking ---- */
+  const g = S.edl.grade || {};
+  const contrast = g.contrast ?? 1, verz = g.verzadiging ?? 1, hel = g.helderheid ?? 0;
+  $('#doek').style.filter =
+    `contrast(${contrast}) saturate(${verz}) brightness(${(1 + hel).toFixed(3)})`;
+  const w = g.warmte || 0;
+  if (warm){
+    warm.style.background = w >= 0 ? 'rgb(255,168,84)' : 'rgb(96,164,255)';
+    warm.style.opacity = Math.min(.5, Math.abs(w) * .55).toFixed(3);
+  }
+}
+
+function ganaar(t, forceer){
+  S.tijd = klem(t, 0, duur());
+  const i = blokOp(S.tijd);
+  if (i!==huidigBlok || forceer) toonBlok(i, i>=0 ? S.tijd-S.edl.video[i].tijdlijn_start : 0);
+  else if (i>=0 && S.actieveVideo)
+    S.actieveVideo.currentTime = bronTijd(S.edl.video[i], S.tijd-S.edl.video[i].tijdlijn_start);
+  const off=S.edl?.audio?.[0]?.bron_start||0;
+  if (Math.abs(audio.currentTime-(S.tijd+off))>0.15) audio.currentTime=S.tijd+off;
+  effectenOp(S.tijd);
+  zetKop();
+}
+
+function speel(){
+  if (!S.edl) return;
+  S.speelt=true;
+  $('#speel-icoon').setAttribute('d','M3 2h4.5v16H3zM12.5 2H17v16h-4.5z');
+  klokStart=performance.now(); tijdStart=S.tijd;
+  if (S.muziek?.bestand){
+    if (!audio.src) audio.src = media(`/media/muziek/${encodeURIComponent(S.muziek.bestand)}`);
+    audio.currentTime=S.tijd+(S.edl?.audio?.[0]?.bron_start||0);
+    audio.play().catch(()=>{});
+  }
+  S.actieveVideo?.play().catch(()=>{});
+  lus=requestAnimationFrame(tik);
+}
+function pauze(){
+  S.speelt=false;
+  $('#speel-icoon').setAttribute('d','M4 2l14 8-14 8z');
+  audio.pause(); vA?.pause(); vB?.pause(); cancelAnimationFrame(lus);
+}
+function tik(){
+  if (!S.speelt) return;
+  const t=tijdStart+(performance.now()-klokStart)/1000;
+  if (t>=duur()){ pauze(); ganaar(0,true); return; }
+  const i=blokOp(t); S.tijd=t;
+  if (i!==huidigBlok && i>=0){
+    // Geen `binnenTijd` meegeven: het klaargezette element staat al op frame 0
+    // van dit shot en dat is precies waar we moeten beginnen. Een offset zou
+    // een nieuwe seek afdwingen en dus weer een flits opleveren.
+    toonBlok(i);
+  }
+  effectenOp(t);
+  zetKop();
+  const x=naarX(t), sc=$('#tl-scroll');
+  if (x<sc.scrollLeft+80 || x>sc.scrollLeft+sc.clientWidth-140) sc.scrollLeft=x-sc.clientWidth*0.35;
+  lus=requestAnimationFrame(tik);
+}
+
+/* ==================================================================
+   Bewerken
+================================================================== */
+function dichtstbijzijndeBeat(t){
+  if (!S.muziek?.beats?.length) return t;
+  const off=S.edl?.audio?.[0]?.bron_start||0;
+  let best=t, d=1e9;
+  for (const b of S.muziek.beats){ const bt=b-off, af=Math.abs(bt-t); if (af<d){ d=af; best=bt; } }
+  return d<0.25 ? best : t;
+}
+function kies(i){
+  S.gekozen=i; S.gekozenOverlay=null; S.kandidaten=null;
+  tekenBlokken(); tekenOverlays(); tab='shot'; zetTab(); toonPaneel();
+}
+
+function kiesOverlay(i){
+  S.gekozenOverlay=i; S.gekozen=null;
+  tekenBlokken(); tekenOverlays(); tab='titels'; zetTab(); toonPaneel();
+}
+
+/* ---------- titels toevoegen en bewerken ---------- */
+let titelTeller = 0;
+function nieuweTitel(soort){
+  if (!S.edl) return;
+  bewaar();
+  titelTeller++;
+  const bestaand = S.edl.overlay.map(o=>o.id);
+  let id;
+  do { id = `t${String(++titelTeller).padStart(2,'0')}`; } while (bestaand.includes(id));
+
+  // Let op de naam: `duur` is ook de functie die de lengte van de montage
+  // geeft. Een lokale `const duur` overschreef die, waarna `duur()` een getal
+  // aanriep als functie — de titel werd dan nooit toegevoegd en je zag niets
+  // gebeuren. Vandaar `lengte`.
+  const lengte = soort==='eindkaart' ? 3.5 : 4.0;
+  const totaal = duur();
+  // Op de afspeelkop, maar wel zo dat de titel binnen de montage past.
+  const start = klem(S.tijd, 0, Math.max(0, totaal - Math.min(lengte, totaal) ));
+  S.edl.overlay.push({
+    id, soort,
+    tijdlijn_start: +start.toFixed(3),
+    duur: Math.min(lengte, Math.max(0.5, totaal - start)),
+    inhoud: soort==='eindkaart'
+      ? {titel:'Bedankt voor het kijken'}
+      : {titel:'Nieuwe titel', eyebrow:'', onder:'', positie:'linksonder', grootte:'normaal'},
+    compositie: null, vast:false,
+  });
+  S.edl.overlay.sort((a,b)=>a.tijdlijn_start-b.tijdlijn_start);
+  S.vuil = true;
+  const i = S.edl.overlay.findIndex(o=>o.id===id);
+  tekenAlles(); kiesOverlay(i);
+  toast('Titel toegevoegd op de afspeelkop. Sleep hem op het overlay-spoor.');
+}
+
+function wijzigOverlay(sleutel, waarde){
+  const o = S.edl?.overlay?.[S.gekozenOverlay];
+  if (!o) return;
+  o.inhoud = {...(o.inhoud||{}), [sleutel]: waarde};
+  S.vuil = true;
+  tekenOverlays();
+  $('#tl-status').textContent = `${S.edl.video.length} shots · niet opgeslagen`;
+}
+
+function verwijderOverlay(){
+  if (S.gekozenOverlay === null) return;
+  bewaar();
+  S.edl.overlay.splice(S.gekozenOverlay, 1);
+  S.gekozenOverlay = null; S.vuil = true;
+  tekenAlles(); toonPaneel();
+  toast('Titel verwijderd.');
+}
+
+/* Verwijderen zonder de beat-sync te slopen.
+
+   Opschuiven van alles erna is het slechtste wat je kunt doen: elke snede
+   daarna verschuift met de duur van het weggehaalde shot en ligt dan naast
+   de maat. Twee manieren die de tijdlijn wél intact laten:
+
+     absorbeer  het vorige shot wordt langer en vult het gat op
+     opvullen   een ander shot neemt exact dezelfde plek in
+
+   Alleen als het eerste shot verdwijnt en er geen vorige is, valt het gat
+   toe aan het volgende shot. */
+async function verwijder(i, modus){
+  if (!S.edl || i===null || i<0) return;
+  const b=S.edl.video[i];
+
+  if (modus === 'opvullen'){
+    try{
+      const r=await api('/api/kandidaten',{method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({duur:b.duur, gebruikt:S.edl.video.map(x=>({clip:x.clip,bron_start:x.bron_start}))})});
+      if (!r.kandidaten.length){ toast('Geen vervanger van deze lengte beschikbaar.', true); return; }
+      vervang(i, r.kandidaten[0]);
+      toast(`Vervangen door ${r.kandidaten[0].clip}. De tijdlijn is niet verschoven.`);
+    }catch(e){ toast('Mislukt: '+e.message, true); }
+    return;
+  }
+
+  if (S.edl.video.length <= 1){ toast('Dit is het laatste shot.', true); return; }
+  bewaar();
+  meldKeuze('verwijderd', {weg:b}, i);
+  const fps = S.edl.canvas.fps || 30;
+  if (i > 0){
+    const vorig = S.edl.video[i-1];
+    vorig.duur = +(vorig.duur + b.duur).toFixed(6);
+    vorig.frames = (vorig.frames||0) + (b.frames||Math.round(b.duur*fps));
+  } else {
+    const volgend = S.edl.video[1];
+    volgend.tijdlijn_start = b.tijdlijn_start;
+    volgend.duur = +(volgend.duur + b.duur).toFixed(6);
+    volgend.frames = (volgend.frames||0) + (b.frames||Math.round(b.duur*fps));
+  }
+  S.edl.video.splice(i,1);
+  S.gekozen=null; S.vuil=true;
+  tekenAlles(); toonPaneel(); ganaar(S.tijd,true);
+  toast(i>0 ? 'Shot verwijderd — het vorige shot vult het gat. Alle snedes blijven op de maat.'
+            : 'Shot verwijderd — het volgende shot begint nu eerder.');
+}
+/* Smaak vastleggen. Elke vervanging, verwijdering en vastzetting is een
+   uitspraak over wat je mooi vindt; die gaat naar keuzes.json en stelt de
+   gewichten van de stijl bij. Faalt het, dan merk je daar niets van — je was
+   aan het monteren, niet aan het trainen. */
+function meldKeuze(soort, velden, index){
+  const kort = b => b ? {clip:b.clip, bron_start:b.bron_start, duur:b.duur} : null;
+  const lading = {soort, stijl:S.stijl, index};
+  for (const [k,v] of Object.entries(velden)) lading[k] = kort(v);
+  api('/api/keuze',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify(lading)})
+    .then(async () => {
+      // De teller onder de stijlkaarten meteen bijwerken, anders lijkt het
+      // alsof er niets met je keuze gebeurt.
+      try { S.stijlen = await api('/api/stijlen'); } catch { return; }
+      if (tab==='montage') toonPaneel();
+    })
+    .catch(()=>{});
+}
+
+function zetVast(i){
+  if (!S.edl || i===null || i<0) return;
+  bewaar();
+  const b=S.edl.video[i];
+  b.vast=!b.vast;
+  // Alleen vastzetten is een voorkeur; losmaken zegt niets.
+  if (b.vast) meldKeuze('vastgezet', {houd:b}, i);
+  S.vuil=true; tekenAlles(); toonPaneel();
+}
+function vervang(i, kand){
+  bewaar();
+  const b=S.edl.video[i], clip=S.clips[kand.clip]||{};
+  meldKeuze('vervangen',
+            {weg: {clip:b.clip, bron_start:b.bron_start, duur:b.duur},
+             komt:{clip:kand.clip, bron_start:kand.start, duur:kand.duur}}, i);
+  b.clip=kand.clip; b.bestand=kand.bestand;
+  b.bron_start = +(kand.start + Math.max(0,(kand.duur-b.duur)/2)).toFixed(3);
+  b.vulmodus = (clip.verticaal === (S.edl.canvas.hoogte>S.edl.canvas.breedte)) ? 'vul' : 'wazig';
+  b.reden = `handmatig gekozen (score ${kand.score.toFixed(2)})`;
+  S.vuil=true; S.kandidaten=null;
+  tekenAlles(); toonPaneel(); ganaar(b.tijdlijn_start+0.05, true);
+  toast(`Shot vervangen door ${kand.clip}.`);
+}
+
+async function opslaan(){
+  if (!S.edl) return;
+  try{
+    const r=await api('/api/edl',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(S.edl)});
+    S.vuil=false; tekenAlles();
+    toast(`Opgeslagen — ${r.blokken} shots, ${r.duur.toFixed(1)}s`);
+  }catch(e){ toast('Opslaan mislukt: '+e.message, true); }
+}
+
+async function monteer(knop){
+  knop.disabled=true; const oud=knop.textContent; knop.textContent='Bezig…';
+  try{
+    const vastgezet=(S.edl?.video||[]).filter(b=>b.vast)
+      .map(b=>({clip:b.clip, bron_start:b.bron_start, duur:b.duur}));
+    const r=await api('/api/regie',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({
+        duur:S.doelduur || 75, vorm:S.vorm || '16:9',
+        brief:$('#in-brief')?.value || '', stijl:S.stijl, vastgezet,
+        uitgesloten:[...S.uitgesloten], ...S.titels })});
+    bewaar();
+    S.edl=r.edl; S.gekozen=null; S.vuil=false; S.kandidaten=null;
+    tekenAlles(); toonPaneel(); ganaar(0,true);
+    toast(r.uitleg);
+  }catch(e){ toast('Mislukt: '+e.message, true); }
+  knop.disabled=false; knop.textContent=oud;
+}
+
+/* ==================================================================
+   Renderen — met voortgang en een popup als het klaar is
+================================================================== */
+let renderLus = null;
+
+async function render(snel){
+  try{
+    await api('/api/render',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify(snel?{tot:15}:{})});
+  }catch(e){ toast('Render mislukt: '+e.message, true); return; }
+  toonVenster(renderBezigHTML({tekst:'Montage klaarzetten', percentage:0}));
+  clearInterval(renderLus);
+  renderLus = setInterval(volgRender, 600);
+}
+
+async function volgRender(){
+  let v;
+  try{ v = await api('/api/voortgang'); }catch{ return; }
+  if (v.bezig){ vulVenster(renderBezigHTML(v)); return; }
+  clearInterval(renderLus); renderLus = null;
+  if (v.fase === 'fout'){ vulVenster(renderFoutHTML(v)); return; }
+  if (v.fase === 'klaar'){
+    S.project = await api('/api/status').catch(()=>S.project);
+    vulVenster(renderKlaarHTML(v));
+    if (tab==='montage') toonPaneel();
+  }
+}
+
+function tijdTekstKort(s){
+  if (s === null || s === undefined) return '';
+  if (s < 60) return `nog ongeveer ${Math.max(1,Math.round(s))} seconden`;
+  return `nog ongeveer ${Math.round(s/60)} minuten`;
+}
+
+function renderBezigHTML(v){
+  const stap = v.totaal > 1 ? ` — ${v.klaar} van ${v.totaal}` : '';
+  return `<h2>Bezig met renderen</h2>
+    <div class="vbalk"><i style="width:${v.percentage||0}%"></i></div>
+    <p class="vstap">${v.tekst||''}${stap}</p>
+    <p class="vklein">${Math.round(v.percentage||0)}%${v.resterend!=null?' · '+tijdTekstKort(v.resterend):''}</p>
+    <p class="hint">Je kunt dit venster laten staan. De montage blijft bewaard.</p>`;
+}
+
+function renderFoutHTML(v){
+  return `<h2>Het renderen is mislukt</h2>
+    <p class="vstap" style="color:var(--fout)">${v.fout||'Onbekende fout'}</p>
+    <p class="hint">Probeer het opnieuw. Blijft het misgaan, kijk dan of alle
+      bronbestanden er nog staan.</p>
+    <div class="vknoppen"><button class="knop primair" data-venster="dicht">Sluiten</button></div>`;
+}
+
+function renderKlaarHTML(v){
+  const r = v.review || {};
+  const fouten = (r.bevindingen||[]).filter(b=>b.ernst==='fout');
+  const punten = (r.bevindingen||[]).filter(b=>b.ernst==='let op');
+  const oordeel = !r.bevindingen ? ''
+    : fouten.length ? `<p class="voordeel fout">${fouten.length} probleem(en) gevonden</p>`
+    : punten.length ? `<p class="voordeel let">Ziet er goed uit — ${punten.length} punt(en) om naar te kijken</p>`
+    : `<p class="voordeel ok">Nagekeken en in orde</p>`;
+  const lijst = [...fouten, ...punten].map(b=>`
+    <div class="vbevinding ${b.ernst==='fout'?'fout':'let'}">${b.boodschap}</div>`).join('');
+  // In de Studio de volledige formulering met getallen erbij — wie hier zit,
+  // wil weten wélk shot en hoeveel.
+  return `<h2>Je video is klaar</h2>
+    ${oordeel}
+    ${lijst}
+    <video class="vpreview" src="${media('/media/render/'+encodeURIComponent((v.bestand||'').split('/').pop()))}"
+      controls playsinline></video>
+    <div class="vknoppen">
+      <button class="knop primair" data-venster="map">Map openen</button>
+      <button class="knop" data-venster="dicht">Sluiten</button>
+    </div>`;
+}
+
+/* Eén venster voor alles wat de aandacht even helemaal opeist. */
+function toonVenster(html){
+  let el = $('#venster');
+  if (!el){
+    el = document.createElement('div');
+    el.id = 'venster';
+    el.innerHTML = '<div class="vkaart"></div>';
+    document.body.appendChild(el);
+  }
+  vulVenster(html);
+}
+function vulVenster(html){
+  const k = $('#venster .vkaart');
+  if (!k) return;
+  k.innerHTML = html;
+  k.querySelectorAll('[data-venster]').forEach(b => b.onclick = async () => {
+    if (b.dataset.venster === 'map'){
+      try{ await api('/api/openmap',{method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({map:'renders'})}); }
+      catch(e){ toast('Map openen lukte niet: '+e.message, true); }
+      return;
+    }
+    sluitVenster();
+  });
+}
+function sluitVenster(){
+  clearInterval(renderLus); renderLus = null;
+  $('#venster')?.remove();
+}
+
+/* ==================================================================
+   Zijpaneel
+================================================================== */
+let tab='montage';
+function zetTab(){ $$('.tab').forEach(x=>x.classList.toggle('aan', x.dataset.tab===tab)); }
+function toonPaneel(){
+  const p=$('#paneel');
+  p.innerHTML = tab==='shot' ? paneelShot()
+              : tab==='montage' ? paneelMontage()
+              : tab==='titels' ? paneelTitels()
+              : tab==='clips' ? paneelClips()
+              : paneelMuziek();
+  bindPaneel();
+}
+
+/* Uitklapbare groep in het zijpaneel.
+   Standaard dicht. Wat je openklapt blijft open, ook als het paneel opnieuw
+   getekend wordt — anders klapt alles dicht zodra je één schuifje beweegt. */
+function sectie(id, titel, samenvatting, inhoud){
+  const open = S.openSecties.has(id);
+  return `<details class="vouw" data-sectie="${id}"${open?' open':''}>
+    <summary>
+      <svg class="pijl" width="12" height="12" viewBox="0 0 12 12" fill="none"
+        stroke="currentColor" stroke-width="1.8" stroke-linecap="round"
+        stroke-linejoin="round"><path d="M4 2l4 4-4 4"/></svg>
+      <h3>${titel}</h3>
+      <span class="sam">${samenvatting||''}</span>
+    </summary>
+    <div class="vouwinhoud">${inhoud}</div>
+  </details>`;
+}
+
+function bijdragen(onderdelen){
+  return Object.entries(onderdelen||{})
+    .map(([k,v]) => [k, (S.gewichten[k]||0)*v])
+    .filter(([,v]) => Math.abs(v) > 0.005)
+    .sort((a,z)=> Math.abs(z[1])-Math.abs(a[1]));
+}
+
+function paneelShot(){
+  if (S.gekozen===null || !S.edl) return `<div class="vak"><h3>Shot</h3>
+    <p class="hint">Klik een shot in de tijdlijn om te zien waarom het gekozen is,
+    en om het te vervangen of vast te zetten.</p></div>`;
+  const b=S.edl.video[S.gekozen], c=S.clips[b.clip]||{};
+  const seg=S.segmenten.find(s=>s.clip===b.clip && Math.abs(s.start-b.bron_start)<2.5);
+  const waarom = seg ? bijdragen(seg.onderdelen).map(([k,v])=>`
+      <div class="rij"><span>${k}</span><span>${v>0?'+':''}${v.toFixed(2)}</span></div>
+      <div class="balk"><i class="${v<0?'min':''}" style="width:${Math.min(100,Math.abs(v)*260)}%"></i></div>`).join('') : '';
+
+  let kandLijst='';
+  if (S.kandidaten){
+    kandLijst = S.kandidaten.length ? S.kandidaten.map((k,idx)=>{
+      const cl=S.clips[k.clip]||{};
+      return `<div class="kandidaat" data-kand="${idx}">
+        <div class="mini" style="background-image:url(${media(`/media/thumb/${k.clip}.jpg`)});
+             ${tegelStrook(cl, k.start)}"></div>
+        <div class="txt"><b>${k.clip}</b><span>${k.start.toFixed(1)}s · scene ${k.scene} · score ${k.score.toFixed(2)}</span></div>
+      </div>`;}).join('')
+      : '<p class="hint">Geen andere kandidaten lang genoeg voor deze plek.</p>';
+  }
+
+  const ZOOMNAAM = {geen:'uit', in:'inzoomen', uit:'uitzoomen', links:'naar links',
+                    rechts:'naar rechts', omhoog:'omhoog', omlaag:'omlaag'};
+  const OVERGANGNAAM = {snede:'harde snede', crossfade:'overvloeien',
+                        dip_zwart:'naar zwart', dip_wit:'naar wit'};
+
+  return `
+  <div class="vak">
+    <h3>Shot ${S.gekozen+1} van ${S.edl.video.length}</h3>
+    <div class="rij"><span>clip</span><span>${b.clip} · ${b.duur.toFixed(1)}s</span></div>
+    <div class="rij"><span>staat op</span><span>${b.tijdlijn_start.toFixed(1)}s</span></div>
+  </div>
+  ${sectie('vervangen', 'Ander beeld', b.vast ? 'vastgezet' : 'kies een alternatief', `
+    <button class="knop primair breed" data-doe="ruil" style="margin-bottom:8px">
+      ${S.kandidaten ? 'Kandidaten verbergen' : 'Vervang dit shot…'}</button>
+    ${kandLijst}
+    <div style="display:flex;gap:8px;margin-top:8px">
+      <button class="knop" style="flex:1" data-doe="vast">${b.vast?'Losmaken':'Vastzetten'}<kbd>L</kbd></button>
+      <button class="knop" style="flex:1" data-doe="opvullen">Ruil automatisch</button>
+    </div>
+    <button class="knop breed" data-doe="weg" style="margin-top:8px">Verwijderen<kbd>⌫</kbd></button>
+    <p class="hint">Bij verwijderen wordt het vorige shot langer, zodat alle
+      volgende snedes op de maat blijven liggen. <b>Ruil automatisch</b> zet er
+      het best scorende alternatief voor in de plaats.</p>`)}
+  ${sectie('beweging', 'Beweging',
+    `${ZOOMNAAM[b.zoom||'geen']} · ${(b.snelheid||1).toFixed(2)}×`
+    + ((b.bevriezen||0) > 0 ? ` · freeze ${b.bevriezen.toFixed(1)}s` : ''), `
+    <div class="veld"><em>Ken Burns — langzaam bewegen in beeld</em>
+      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:6px">
+        ${[['geen','—'],['in','Inzoomen'],['uit','Uitzoomen'],['links','◀'],
+           ['rechts','▶'],['omhoog','▲'],['omlaag','▼']].map(([id,label])=>`
+          <button class="vormknop ${(b.zoom||'geen')===id?'aan':''}" data-zoom="${id}"
+            style="padding:9px 3px;gap:0"><b style="font-size:11px;font-weight:600">${label}</b></button>`).join('')}
+      </div>
+    </div>
+    <label class="veld"><em>Snelheid</em>
+      <div class="schuif">
+        <input type="range" data-snelheid min="0.25" max="2" step="0.05" value="${b.snelheid||1}">
+        <output>${(b.snelheid||1).toFixed(2)}×</output>
+      </div>
+      <div class="schuifmerk"><span>0.25× slow motion</span><span>2× versneld</span></div>
+    </label>
+    <label class="veld"><em>Freeze frame</em>
+      <div class="schuif">
+        <input type="range" data-bevriezen min="0" max="2" step="0.1" value="${b.bevriezen||0}">
+        <output>${(b.bevriezen||0).toFixed(1)}s</output>
+      </div>
+      <div class="schuifmerk"><span>uit</span><span>2s stil</span></div>
+    </label>
+    <p class="hint">Slow motion werkt het best op korte, scherpe shots.
+      Ken Burns geeft een statisch shot beweging zonder dat het opvalt.<br>
+      Freeze frame houdt het laatste beeld vast aan het eind van het shot.
+      Het shot wordt niet langer — het bevroren deel gaat van de beweging af,
+      zodat de snede op de beat blijft liggen.</p>`)}
+
+  ${sectie('overgang', 'Overgang',
+    `${OVERGANGNAAM[b.overgang_in?.soort||'snede']}`
+    + ((b.overgang_in?.duur||0) > 0 ? ` · ${b.overgang_in.duur.toFixed(2)}s` : ''), `
+    <div class="vormen" style="flex-wrap:wrap">
+      ${[['snede','Harde snede','▏'],['crossfade','Overvloeien','◑'],
+         ['dip_zwart','Naar zwart','●'],['dip_wit','Naar wit','○']].map(([id,label,teken])=>`
+        <button class="vormknop ${(b.overgang_in?.soort||'snede')===id?'aan':''}"
+          data-overgang="${id}" style="min-width:calc(50% - 4px);padding:10px 6px">
+          <b style="font-size:16px">${teken}</b><span>${label}</span></button>`).join('')}
+    </div>
+    <label class="veld" style="margin-top:10px"><em>Duur van de overgang</em>
+      <div class="schuif">
+        <input type="range" data-overgangduur min="0.1" max="1.5" step="0.05"
+          value="${b.overgang_in?.duur || 0.3}">
+        <output>${(b.overgang_in?.duur || 0.3).toFixed(2)}s</output>
+      </div></label>
+    <button class="knop breed" data-doe="overgang-alles" style="margin-top:8px">
+      Op alle shots toepassen</button>
+    <p class="hint">Een harde snede op de beat werkt bijna altijd het best.
+      Overvloeien past bij rustige stijlen.</p>`)}
+
+  ${sectie('geluid', 'Clipgeluid',
+    (b.geluid||0) > 0 ? `${Math.round(b.geluid*100)}%` : 'alleen muziek', `
+    <label class="veld"><em>Volume onder de muziek</em>
+      <div class="schuif">
+        <input type="range" data-geluid min="0" max="1" step="0.05" value="${b.geluid||0}">
+        <output>${Math.round((b.geluid||0)*100)}%</output>
+      </div>
+      <div class="schuifmerk"><span>uit</span><span>vol</span></div>
+    </label>
+    <div style="display:flex;gap:8px">
+      <label class="veld" style="flex:1"><em>J-cut — eerder</em>
+        <div class="schuif">
+          <input type="range" data-geluidvoor min="0" max="2" step="0.1" value="${b.geluid_voor||0}">
+          <output>${(b.geluid_voor||0).toFixed(1)}s</output>
+        </div></label>
+      <label class="veld" style="flex:1"><em>L-cut — langer</em>
+        <div class="schuif">
+          <input type="range" data-geluidna min="0" max="2" step="0.1" value="${b.geluid_na||0}">
+          <output>${(b.geluid_na||0).toFixed(1)}s</output>
+        </div></label>
+    </div>
+    <p class="hint">Het geluid van de clip mag eerder beginnen (J-cut) of
+      doorlopen over de volgende snede (L-cut). Dat maakt een montage rustiger
+      om naar te kijken. Standaard hoor je alleen de muziek.</p>`)}
+
+  ${sectie('details', 'Details', `${b.frames||'?'} frames`, `
+    <div class="rij"><span>bestand</span><span style="font-size:11px">${b.bestand}</span></div>
+    <div class="rij"><span>duur</span><span>${b.duur.toFixed(2)}s · ${b.frames||'?'} frames</span></div>
+    <div class="rij"><span>in de bron</span><span>${b.bron_start.toFixed(2)}s</span></div>
+    <div class="rij"><span>scene</span><span>${c.scene ?? '–'}</span></div>
+    <div class="rij"><span>beeldvulling</span><span>${b.vulmodus}</span></div>`)}
+
+  ${waarom ? sectie('waarom', 'Waarom', b.reden ? b.reden.split('(')[0].trim() : '',
+    waarom + `<p class="hint">${b.reden||''}</p>`) : ''}`;
+}
+
+function paneelMontage(){
+  const D=duur(), clips=S.edl?new Set(S.edl.video.map(b=>b.clip)).size:0;
+  // Bovengrens is de lengte van de muziek: langer monteren kan niet zinvol.
+  const maxDuur = Math.max(30, Math.round((S.muziek?.duur || 180)/5)*5);
+  const startDuur = klem(S.doelduur || Math.round(D) || 75, 10, maxDuur);
+  const kaarten = S.stijlen.map(s=>`
+    <button class="stijlkaart ${s.naam===S.stijl?'aan':''}" data-stijl="${s.naam}">
+      <b>${s.titel}</b>
+      <span>${s.omschrijving||''}</span>
+      <em>shots ${s.min_shot.toFixed(1)}–${s.max_shot.toFixed(1)}s</em>
+    </button>`).join('');
+  return `
+  <div class="vak"><h3>Stijl</h3>${kaarten}${geheugenRegel()}</div>
+  <div class="vak"><h3>Instellingen</h3>
+    <div class="veld"><em>Doelduur</em>
+      <div class="schuif">
+        <input type="range" id="in-duur" min="10" max="${maxDuur}" step="5" value="${startDuur}">
+        <output id="duur-uit">${startDuur}s</output>
+      </div>
+      <div class="schuifmerk"><span>10s</span><span>${maxDuur}s</span></div>
+    </div>
+    <div class="veld"><em>Beeldverhouding</em>
+      <div class="vormen">
+        ${[['16:9','Liggend','YouTube',34,19],
+           ['9:16','Staand','Reels, TikTok',19,34],
+           ['1:1','Vierkant','Feed',26,26]].map(([v,t,w,bw,bh])=>`
+          <button class="vormknop ${v===S.vorm?'aan':''}" data-vorm="${v}">
+            <span class="kader" style="width:${bw}px;height:${bh}px"></span>
+            <b>${v}</b><span>${t}<br>${w}</span>
+          </button>`).join('')}
+      </div>
+    </div>
+    <label class="veld"><em>Aanwijzingen (optioneel)</em>
+      <textarea id="in-brief" placeholder="Bijvoorbeeld: meer natuur, minder mensen"></textarea></label>
+    <button class="knop primair breed" data-doe="regie">Monteer opnieuw</button>
+  </div>
+  <div class="vak"><h3>Titels</h3>
+    <p class="hint" style="margin-top:0;margin-bottom:12px">Laat een veld leeg om die
+      kaart weg te laten. Ze verschijnen pas in de gerenderde video, niet in de preview.</p>
+    <label class="veld"><em>Titel</em>
+      <input type="text" id="in-titel" value="${S.titels.titel}" placeholder="Alpen 2026"></label>
+    <label class="veld"><em>Bovenschrift</em>
+      <input type="text" id="in-eyebrow" value="${S.titels.eyebrow}" placeholder="reisverslag"></label>
+    <label class="veld"><em>Onderschrift</em>
+      <input type="text" id="in-ondertitel" value="${S.titels.ondertitel}" placeholder="Oostenrijk · juni"></label>
+    <label class="veld"><em>Eindkaart</em>
+      <input type="text" id="in-slot" value="${S.titels.slottekst}" placeholder="Bedankt voor het kijken"></label>
+    <p class="hint">Vastgezette shots blijven op hun plek. Uitgesloten clips
+      (tabblad Clips) worden overgeslagen.</p>
+  </div>
+  <div class="vak"><h3>Deze montage</h3>
+    <div class="rij"><span>shots</span><span>${S.edl?.video.length||0}</span></div>
+    <div class="rij"><span>clips gebruikt</span><span>${clips} / ${Object.keys(S.clips).length}</span></div>
+    <div class="rij"><span>duur</span><span>${D.toFixed(1)}s</span></div>
+    <div class="rij"><span>canvas</span><span>${S.edl?.canvas.breedte||0}×${S.edl?.canvas.hoogte||0}</span></div>
+  </div>
+  <div class="vak"><h3>Renders</h3>
+    ${(S.project.renders||[]).map(r=>`<div class="rij"><span style="font-size:12px">${r}</span>
+      <a class="knop klein" href="${media(`/media/render/${encodeURIComponent(r)}`)}" target="_blank">open</a></div>`).join('')
+      || '<p class="hint">Nog niets gerenderd.</p>'}
+  </div>
+  <div class="vak"><h3>Nakijken</h3>
+    <button class="knop breed" id="btn-review" ${(S.project.renders||[]).length?'':'disabled'}>
+      Controleer de laatste render</button>
+    <div id="reviewuit">${reviewLijst()}</div>
+    <p class="hint">Meet frameaantal, zwart beeld, onbedoelde stilstand, de
+      afstand van elke snede tot de tel, luidheid en de marges van de titels.
+      Duurt ongeveer tien seconden.</p>
+  </div>`;
+}
+
+/* ---------- stijl-geheugen ----------
+   Wat de stijl uit eerdere keuzes heeft opgepikt, in gewone taal. Een systeem
+   dat ongemerkt aan je gewichten zit te draaien voelt als willekeur; zichtbaar
+   maken kost drie regels en neemt dat gevoel weg. */
+const SIGNAALNAAM = {beweging:'beweging', scherpte:'scherpte', belichting:'belichting',
+  shake:'wiebelig beeld', vlakheid:'vlakke beelden', gezicht:'gezichten',
+  te_donker:'donkere beelden', geluid:'spraak'};
+
+function geheugenRegel(){
+  const s = S.stijlen.find(x=>x.naam===S.stijl);
+  const g = s && s.geleerd;
+  if (!g || !g.keuzes) return '';
+  const punten = Object.entries(g.bijstelling||{})
+    .filter(([,v]) => Math.abs(v) >= 0.02)
+    .sort((a,b)=>Math.abs(b[1])-Math.abs(a[1])).slice(0,3)
+    .map(([k,v]) => `${v>0?'meer':'minder'} ${SIGNAALNAAM[k]||k}`);
+  return `<p class="hint" style="margin-top:10px">
+    Uit <b>${g.keuzes}</b> eerdere keuze(s) in deze stijl geleerd:
+    ${punten.length ? punten.join(', ') : 'nog geen duidelijke voorkeur'}.
+    <a href="#" id="lnk-vergeet" style="color:var(--accent)">vergeten</a></p>`;
+}
+
+async function vergeetStijl(){
+  if (!confirm(`Alles vergeten wat "${S.stijl}" uit je keuzes geleerd heeft?`)) return;
+  try{
+    await api('/api/vergeet?stijl='+encodeURIComponent(S.stijl));
+    S.stijlen = await api('/api/stijlen');
+    toonPaneel(); toast('Vergeten. De stijl staat weer op wat er in het stijlbestand staat.');
+  }catch(e){ toast('Mislukt: '+e.message, true); }
+}
+
+/* ---------- nakijken ---------- */
+function reviewLijst(){
+  const r = S.review;
+  if (!r) return '';
+  if (r.fout) return `<p class="hint" style="color:var(--fout)">${r.fout}</p>`;
+  const kleur = {'fout':'var(--fout)','let op':'var(--waarschuwing)','ok':'var(--accent)'};
+  const teken = {'fout':'✕','let op':'!','ok':'✓'};
+  // Wat in orde is verdient minder aandacht dan wat het niet is.
+  const dof = e => e==='ok' ? 'color:var(--tekst-2)' : '';
+  return `<div style="margin:6px 0 10px">
+    ${r.bevindingen.map(b=>`<div style="display:flex;gap:8px;align-items:flex-start;
+      padding:5px 0;border-bottom:1px solid var(--rand)">
+      <span style="color:${kleur[b.ernst]||''};font-weight:700;width:12px;flex:none;
+        text-align:center">${teken[b.ernst]||'·'}</span>
+      <span style="font-size:12px;line-height:1.45;${dof(b.ernst)}">${b.boodschap}</span></div>`).join('')}
+  </div>`;
+}
+
+async function nakijken(){
+  const knop = $('#btn-review'); if (!knop) return;
+  const oud = knop.textContent;
+  knop.disabled = true; knop.textContent = 'Bezig met nakijken…';
+  try{
+    S.review = await api('/api/review',{method:'POST',
+      headers:{'Content-Type':'application/json'}, body:'{}'});
+    const n = S.review.fouten, w = S.review.waarschuwingen;
+    toast(n ? `${n} fout(en) gevonden.` : w ? `Geen fouten, ${w} punt(en) om naar te kijken.`
+                                            : 'Alles in orde.', !!n);
+  }catch(e){ S.review = {fout: e.message}; toast('Nakijken mislukt: '+e.message, true); }
+  knop.disabled = false; knop.textContent = oud;
+  const vak = $('#reviewuit'); if (vak) vak.innerHTML = reviewLijst();
+}
+
+function paneelTitels(){
+  const lijst = (S.edl?.overlay || []);
+  const rijen = lijst.map((o,i)=>`
+    <button class="stijlkaart ${S.gekozenOverlay===i?'aan':''}" data-ov="${i}" style="margin-bottom:6px">
+      <b>${o.inhoud?.titel || o.soort}</b>
+      <span>${o.soort === 'eindkaart' ? 'eindkaart' : 'titelkaart'} ·
+        ${o.tijdlijn_start.toFixed(1)}s · ${o.duur.toFixed(1)}s</span>
+    </button>`).join('') || '<p class="hint" style="margin-top:0">Nog geen titels.</p>';
+
+  const o = S.gekozenOverlay !== null ? lijst[S.gekozenOverlay] : null;
+  let editor = '';
+  if (o){
+    const inh = o.inhoud || {};
+    const posKnop = (p, label) => `<button class="vormknop ${(inh.positie||'linksonder')===p?'aan':''}"
+        data-pos="${p}" style="padding:9px 4px;gap:0" title="${label}">
+        <b style="font-size:11px;font-weight:600">${label}</b></button>`;
+    const maatKnop = (m) => `<button class="vormknop ${(inh.grootte||'normaal')===m?'aan':''}"
+        data-maat="${m}" style="padding:10px 4px;gap:4px">
+        <b style="font-size:${m==='klein'?11:m==='normaal'?14:18}px">Aa</b>
+        <span style="font-size:10px">${m}</span></button>`;
+
+    editor = `
+    <div class="vak"><h3>${o.soort === 'eindkaart' ? 'Eindkaart' : 'Titelkaart'} bewerken</h3>
+      <label class="veld"><em>Tekst</em>
+        <input type="text" data-veld="titel" value="${(inh.titel||'').replace(/"/g,'&quot;')}"></label>
+      ${o.soort === 'eindkaart' ? '' : `
+      <label class="veld"><em>Bovenschrift</em>
+        <input type="text" data-veld="eyebrow" value="${(inh.eyebrow||'').replace(/"/g,'&quot;')}"
+          placeholder="klein, in de accentkleur"></label>`}
+      <label class="veld"><em>Onderschrift</em>
+        <input type="text" data-veld="onder" value="${(inh.onder||'').replace(/"/g,'&quot;')}"></label>
+      ${o.soort === 'eindkaart' ? '' : `
+      <div class="veld"><em>Stijl</em>
+        <div class="stijlraster">
+          ${STIJLEN.map(([id,label])=>`
+            <button class="stijltegel ${(inh.stijl||'glas')===id?'aan':''}" data-tstijl="${id}">
+              <div class="doekje">
+                <div class="tk tk-${id}" style="--accent:${inh.kleur||'#2dd4bf'};--tekst:#fff;
+                     left:8%;bottom:14%;${id==='balk'?'left:0;right:0;bottom:0;':''}
+                     ${/^statement|filmisch$/.test(id)?'left:50%;transform:translateX(-50%);':''}">
+                  <div class="titel">Aa</div><div class="streep"></div>
+                </div>
+              </div>
+              <div class="naam">${label}</div>
+            </button>`).join('')}
+        </div>
+      </div>
+      <div class="veld"><em>Positie in beeld</em>
+        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px">
+          ${posKnop('linksboven','↖')}${posKnop('middenboven','↑')}${posKnop('rechtsboven','↗')}
+          ${posKnop('linksmidden','←')}${posKnop('midden','•')}${posKnop('rechtsmidden','→')}
+          ${posKnop('linksonder','↙')}${posKnop('middenonder','↓')}${posKnop('rechtsonder','↘')}
+        </div></div>
+      <div class="veld"><em>Grootte</em>
+        <div class="vormen">${maatKnop('klein')}${maatKnop('normaal')}${maatKnop('groot')}</div>
+      </div>`}
+      <div class="veld"><em>Accentkleur</em>
+        <div class="vormen" style="margin-bottom:8px">
+          ${['#2dd4bf','#f59e0b','#f43f5e','#8b5cf6','#ffffff'].map(c=>`
+            <button class="vormknop ${(inh.kleur||'#2dd4bf').toLowerCase()===c?'aan':''}"
+              data-kleur="${c}" style="padding:12px 4px">
+              <span style="width:22px;height:22px;border-radius:50%;background:${c};
+                box-shadow:0 0 0 1px rgba(0,0,0,.4) inset"></span></button>`).join('')}
+        </div>
+        <input type="color" data-kleurkiezer value="${inh.kleur||'#2dd4bf'}" title="Eigen kleur kiezen">
+      </div>
+      <label class="veld"><em>Tekstkleur</em>
+        <input type="color" data-tekstkleur value="${inh.tekstkleur||'#ffffff'}"></label>
+      <div class="rij"><span>op tijdlijn</span><span>${o.tijdlijn_start.toFixed(2)}s</span></div>
+      <div class="rij"><span>duur</span><span>${o.duur.toFixed(2)}s</span></div>
+      <button class="knop breed" data-doe="ov-weg" style="margin-top:12px">Titel verwijderen</button>
+      <p class="hint">Sleep de balk op het overlay-spoor om hem te verplaatsen,
+        of pak een rand om hem korter of langer te maken.</p>
+    </div>`;
+  }
+
+  const ot = (S.edl?.overlay || []).find(x => x.soort === 'ondertitels');
+  const otRegels = (() => { try { return JSON.parse(ot?.inhoud?.regels || '[]').length; }
+                            catch { return 0; } })();
+
+  return `
+  <div class="vak"><h3>Toevoegen</h3>
+    <div style="display:flex;gap:8px">
+      <button class="knop primair" style="flex:1" data-doe="nieuw-titel">+ Titelkaart</button>
+      <button class="knop" style="flex:1" data-doe="nieuw-eind">+ Eindkaart</button>
+    </div>
+    <p class="hint">De titel verschijnt op de plek van de afspeelkop. Je ziet hem
+      meteen in beeld — precies zoals hij gerenderd wordt.</p>
+  </div>
+
+  <div class="vak"><h3>Ondertitels</h3>
+    ${ot ? `<div class="rij"><span>regels</span><span>${otRegels}</span></div>
+      <div class="rij"><span>stijl</span><span>${ot.inhoud?.stijl || 'karaoke'}</span></div>` : ''}
+    <label class="veld" style="margin-top:10px"><em>Weergave</em>
+      <select id="ot-stijl">
+        <option value="karaoke">Karaoke — woord licht op als het klinkt</option>
+        <option value="gewoon">Gewoon — hele regel tegelijk</option>
+        <option value="kaart">Kaart — donkere balk achter de tekst</option>
+      </select></label>
+    <label class="veld"><em>Grootte</em>
+      <select id="ot-grootte">
+        <option value="klein">Klein</option>
+        <option value="normaal" selected>Normaal</option>
+        <option value="groot">Groot</option>
+      </select></label>
+    <button class="knop primair breed" data-doe="ondertitels">
+      ${ot ? 'Ondertitels opnieuw maken' : 'Maak ondertitels'}</button>
+    <p class="hint">Draait lokaal met whisper.cpp — er gaat niets naar buiten.
+      Reken op een halve minuut per tien minuten ruw materiaal. Werkt alleen
+      als er ook echt gesproken wordt; wind en muziek leveren onzin op.</p>
+  </div>
+
+  <div class="vak"><h3>Titels in deze montage</h3>${rijen}</div>
+  ${editor}`;
+}
+
+function paneelClips(){
+  const rijen = Object.values(S.clips).map(c=>{
+    const uit = S.uitgesloten.has(c.id);
+    return `<div class="cliprij ${uit?'uit':''}">
+      <label class="schakel" style="padding:0" title="Meenemen in de montage">
+        <input type="checkbox" data-clip="${c.id}" ${uit?'':'checked'}><span class="spoor"></span></label>
+      <div class="mini" style="background-image:url(${media(`/media/thumb/${c.id}.jpg`)});
+           ${tegelStrook(c, c.duur*0.4)}"></div>
+      <div class="txt"><b>${c.id}</b><span>${c.duur.toFixed(1)}s · scene ${c.scene} ${c.verticaal?'· staand':''}</span></div>
+    </div>`;}).join('');
+  return `<div class="vak"><h3>Clips (${Object.keys(S.clips).length})</h3>
+    <p class="hint" style="margin-top:0;margin-bottom:12px">Zet een clip uit om hem
+      over te slaan bij het volgende monteren — bijvoorbeeld een mislukte opname.</p>
+    ${rijen}</div>`;
+}
+
+function paneelMuziek(){
+  const m=S.muziek||{};
+  return `
+  <div class="vak"><h3>Track</h3>
+    <div class="rij"><span>tempo</span><span>${(m.bpm||0).toFixed(0)} BPM</span></div>
+    <div class="rij"><span>duur</span><span>${(m.duur||0).toFixed(0)}s</span></div>
+    <div class="rij"><span>tellen</span><span>${(m.beats||[]).length}</span></div>
+    <div class="rij"><span>maten</span><span>${(m.maten||[]).length}</span></div>
+    <div class="rij"><span>montage begint op</span><span>${(S.edl?.audio?.[0]?.bron_start||0).toFixed(2)}s</span></div>
+  </div>
+  <div class="vak"><h3>Structuur</h3>
+    ${(m.secties||[]).map(s=>`<div class="rij"><span>${s.start.toFixed(0)}–${s.eind.toFixed(0)}s</span>
+      <span style="color:${s.niveau==='hoog'?'#f43f5e':s.niveau==='opbouw'?'#8b5cf6':'#3b82f6'}">${s.niveau}</span>
+    </div>`).join('')}
+  </div>
+  ${(m.drops||[]).length?`<div class="vak"><h3>Drops</h3>
+    <p style="font-family:var(--mono);font-size:13px;color:var(--waarschuwing)">
+    ${m.drops.map(d=>d.toFixed(1)+'s').join('  ·  ')}</p></div>`:''}`;
+}
+
+function bindPaneel(){
+  const schuif = $('#in-duur');
+  if (schuif){
+    const bij = () => {
+      const min=+schuif.min, max=+schuif.max;
+      schuif.style.setProperty('--vul', ((schuif.value-min)/(max-min)*100)+'%');
+      $('#duur-uit').textContent = schuif.value + 's';
+      S.doelduur = +schuif.value;
+    };
+    bij();
+    schuif.oninput = bij;
+  }
+  // Titelvelden onthouden hun waarde, ook als het paneel opnieuw getekend wordt.
+  [['in-titel','titel'],['in-eyebrow','eyebrow'],
+   ['in-ondertitel','ondertitel'],['in-slot','slottekst']].forEach(([id,sleutel])=>{
+    const el = $('#'+id);
+    if (el) el.oninput = () => { S.titels[sleutel] = el.value; };
+  });
+  // --- beweging en geluid per shot ---
+  const schuifBind = (kies, veld, formaat) => {
+    const el = $(`#paneel [${kies}]`);
+    if (!el) return;
+    const bij = (schrijf) => {
+      const b = S.edl?.video?.[S.gekozen]; if (!b) return;
+      const min=+el.min, max=+el.max;
+      el.style.setProperty('--vul', ((el.value-min)/(max-min)*100)+'%');
+      el.nextElementSibling.textContent = formaat(+el.value);
+      if (schrijf && b[veld] !== +el.value){ b[veld] = +el.value; S.vuil = true; }
+    };
+    bij(false);
+    el.oninput = () => bij(true);
+    el.onchange = () => { bewaar(); bij(true); tekenAlles(); };
+  };
+  schuifBind('data-snelheid',   'snelheid',    v => v.toFixed(2)+'×');
+  schuifBind('data-bevriezen',  'bevriezen',   v => v.toFixed(1)+'s');
+  schuifBind('data-geluid',     'geluid',      v => Math.round(v*100)+'%');
+  schuifBind('data-geluidvoor', 'geluid_voor', v => v.toFixed(1)+'s');
+  schuifBind('data-geluidna',   'geluid_na',   v => v.toFixed(1)+'s');
+
+  const review = $('#btn-review');
+  if (review) review.onclick = nakijken;
+
+  const vergeet = $('#lnk-vergeet');
+  if (vergeet) vergeet.onclick = e => { e.preventDefault(); vergeetStijl(); };
+
+  $$('#paneel .vouw').forEach(d => d.addEventListener('toggle', () => {
+    if (d.open) S.openSecties.add(d.dataset.sectie);
+    else S.openSecties.delete(d.dataset.sectie);
+  }));
+
+  $$('#paneel [data-zoom]').forEach(el => el.onclick = () => {
+    const b = S.edl?.video?.[S.gekozen]; if (!b) return;
+    bewaar(); b.zoom = el.dataset.zoom; S.vuil = true;
+    $$('#paneel [data-zoom]').forEach(x => x.classList.toggle('aan', x===el));
+    tekenAlles();
+  });
+
+  // --- overgangen ---
+  $$('#paneel [data-overgang]').forEach(el => el.onclick = () => {
+    const b = S.edl?.video?.[S.gekozen]; if (!b) return;
+    bewaar();
+    const duur = +($('#paneel [data-overgangduur]')?.value || 0.3);
+    b.overgang_in = {soort: el.dataset.overgang,
+                     duur: el.dataset.overgang === 'snede' ? 0 : duur};
+    S.vuil = true;
+    $$('#paneel [data-overgang]').forEach(x => x.classList.toggle('aan', x===el));
+    tekenAlles();
+  });
+  const od = $('#paneel [data-overgangduur]');
+  if (od){
+    const bij = () => {
+      const b = S.edl?.video?.[S.gekozen]; if (!b) return;
+      const min=+od.min, max=+od.max;
+      od.style.setProperty('--vul', ((od.value-min)/(max-min)*100)+'%');
+      od.nextElementSibling.textContent = (+od.value).toFixed(2)+'s';
+      if ((b.overgang_in?.soort||'snede') !== 'snede'){
+        b.overgang_in = {...b.overgang_in, duur:+od.value}; S.vuil = true;
+      }
+    };
+    bij(); od.oninput = bij;
+  }
+
+  // --- titel-editor ---
+  $$('#paneel [data-ov]').forEach(el => el.onclick = () => kiesOverlay(+el.dataset.ov));
+  $$('#paneel [data-veld]').forEach(el => el.oninput = () =>
+    wijzigOverlay(el.dataset.veld, el.value));
+  $$('#paneel [data-pos]').forEach(el => el.onclick = () => {
+    wijzigOverlay('positie', el.dataset.pos);
+    $$('#paneel [data-pos]').forEach(x => x.classList.toggle('aan', x===el));
+  });
+  $$('#paneel [data-maat]').forEach(el => el.onclick = () => {
+    wijzigOverlay('grootte', el.dataset.maat);
+    $$('#paneel [data-maat]').forEach(x => x.classList.toggle('aan', x===el));
+  });
+  $$('#paneel [data-kleur]').forEach(el => el.onclick = () => {
+    wijzigOverlay('kleur', el.dataset.kleur);
+    const k = $('#paneel [data-kleurkiezer]'); if (k) k.value = el.dataset.kleur;
+    $$('#paneel [data-kleur]').forEach(x => x.classList.toggle('aan', x===el));
+    $$('#paneel [data-tstijl] .tk').forEach(x => x.style.setProperty('--accent', el.dataset.kleur));
+  });
+  const kiezer = $('#paneel [data-kleurkiezer]');
+  if (kiezer) kiezer.oninput = () => {
+    wijzigOverlay('kleur', kiezer.value);
+    $$('#paneel [data-kleur]').forEach(x => x.classList.remove('aan'));
+    $$('#paneel [data-tstijl] .tk').forEach(x => x.style.setProperty('--accent', kiezer.value));
+  };
+  const tk = $('#paneel [data-tekstkleur]');
+  if (tk) tk.oninput = () => wijzigOverlay('tekstkleur', tk.value);
+  $$('#paneel [data-tstijl]').forEach(el => el.onclick = () => {
+    wijzigOverlay('stijl', el.dataset.tstijl);
+    $$('#paneel [data-tstijl]').forEach(x => x.classList.toggle('aan', x===el));
+  });
+
+  $$('#paneel [data-vorm]').forEach(el => el.onclick = () => {
+    S.vorm = el.dataset.vorm;
+    $$('#paneel [data-vorm]').forEach(x=>x.classList.toggle('aan', x===el));
+  });
+  $$('#paneel [data-stijl]').forEach(el => el.onclick = () => {
+    S.stijl = el.dataset.stijl; toonPaneel();
+    const s = S.stijlen.find(x=>x.naam===S.stijl);
+    toast(`Stijl: ${s.titel}. Klik “Monteer opnieuw” om hem toe te passen.`);
+  });
+  $$('#paneel [data-clip]').forEach(el => el.onchange = () => {
+    if (el.checked) S.uitgesloten.delete(el.dataset.clip); else S.uitgesloten.add(el.dataset.clip);
+    toonPaneel();
+  });
+  $$('#paneel [data-kand]').forEach(el => el.onclick = () =>
+    vervang(S.gekozen, S.kandidaten[+el.dataset.kand]));
+  $$('#paneel [data-doe]').forEach(el => el.onclick = async () => {
+    const doe = el.dataset.doe;
+    if (doe==='weg') verwijder(S.gekozen);
+    if (doe==='opvullen') verwijder(S.gekozen, 'opvullen');
+    if (doe==='vast') zetVast(S.gekozen);
+    if (doe==='nieuw-titel') nieuweTitel('titel');
+    if (doe==='nieuw-eind') nieuweTitel('eindkaart');
+    if (doe==='ov-weg') verwijderOverlay();
+    if (doe==='ondertitels'){
+      el.disabled = true; el.textContent = 'Bezig…';
+      try{
+        await api('/api/ondertitels',{method:'POST',headers:{'Content-Type':'application/json'},
+          body:JSON.stringify({stijl:$('#ot-stijl').value, grootte:$('#ot-grootte').value})});
+        toast('Ondertitels worden gemaakt. Dat kan even duren.');
+        // Wachten tot de achtergrondtaak klaar is en dan de EDL herladen.
+        const wachtLus = setInterval(async () => {
+          try{
+            const s = await api('/api/status');
+            if (!s.bezig){
+              clearInterval(wachtLus);
+              S.edl = await api('/api/edl');
+              tekenAlles(); toonPaneel();
+              const n = (()=>{ try{ return JSON.parse(
+                S.edl.overlay.find(x=>x.soort==='ondertitels')?.inhoud?.regels||'[]').length; }
+                catch{ return 0; } })();
+              toast(n ? `${n} ondertitelregels toegevoegd.` : 'Geen spraak gevonden in dit materiaal.');
+            }
+          }catch{ clearInterval(wachtLus); }
+        }, 2000);
+      }catch(e){ toast('Mislukt: '+e.message, true); }
+      el.disabled = false; el.textContent = 'Maak ondertitels';
+    }
+    if (doe==='overgang-alles'){
+      const b = S.edl?.video?.[S.gekozen]; if (!b) return;
+      bewaar();
+      const over = {...(b.overgang_in || {soort:'snede', duur:0})};
+      // Het eerste shot houdt zijn eigen instap; die hoort bij het begin
+      // van de video, niet bij een overgang tussen twee shots.
+      S.edl.video.slice(1).forEach(x => x.overgang_in = {...over});
+      S.vuil = true; tekenAlles();
+      toast(`Overgang "${over.soort}" op ${S.edl.video.length - 1} snedes gezet.`);
+    }
+    if (doe==='regie') monteer(el);
+    if (doe==='ruil'){
+      if (S.kandidaten){ S.kandidaten=null; toonPaneel(); return; }
+      el.disabled=true; el.textContent='Zoeken…';
+      try{
+        const b=S.edl.video[S.gekozen];
+        const r=await api('/api/kandidaten',{method:'POST',headers:{'Content-Type':'application/json'},
+          body:JSON.stringify({duur:b.duur, gebruikt:S.edl.video.map(x=>({clip:x.clip,bron_start:x.bron_start}))})});
+        S.kandidaten=r.kandidaten;
+        S.openSecties.add('vervangen');  // anders klapt de lijst meteen weg
+        toonPaneel();
+      }catch(e){ toast('Mislukt: '+e.message, true); el.disabled=false; }
+    }
+  });
+}
+
+/* ==================================================================
+   Bediening
+================================================================== */
+function bind(){
+  vA=$('#v1'); vB=$('#v2'); S.actieveVideo=vA;
+
+  $$('.tab').forEach(t => t.onclick = () => { tab=t.dataset.tab; zetTab(); toonPaneel(); });
+
+  $('#btn-start').onclick = () => {
+    if (S.vuil && !confirm('Er zijn niet-opgeslagen wijzigingen. Toch terug?')) return;
+    S.vuil = false;
+    location.href = '/?project=' + encodeURIComponent(S.projectnaam || '');
+  };
+  $('#btn-speel').onclick = () => S.speelt?pauze():speel();
+  $('#btn-begin').onclick = () => { pauze(); ganaar(0,true); };
+  $('#btn-vorig').onclick = () => { const i=blokOp(S.tijd); if(i>0){pauze(); ganaar(S.edl.video[i-1].tijdlijn_start+0.02,true);} };
+  $('#btn-volgend').onclick = () => { const i=blokOp(S.tijd); if(i>=0&&S.edl.video[i+1]){pauze(); ganaar(S.edl.video[i+1].tijdlijn_start+0.02,true);} };
+  $('#btn-opslaan').onclick = opslaan;
+  $('#btn-terug').onclick = ongedaan;
+  $('#btn-snel').onclick = () => render(true);
+  $('#btn-render').onclick = () => render(false);
+  $('#zoom-in').onclick = () => { S.pxs=klem(S.pxs*1.5,2,300); tekenAlles(); };
+  $('#zoom-uit').onclick = () => { S.pxs=klem(S.pxs/1.5,2,300); tekenAlles(); };
+  $('#toon-secties').onchange = () => tekenAlles();
+
+  const scroll=$('#tl-scroll');
+  let scrubben=false;
+
+  scroll.addEventListener('mousedown', e => {
+    const rect=$('#tl-inhoud').getBoundingClientRect();
+    const t=naarT(e.clientX-rect.left);
+
+    // Titels op het overlay-spoor: zelfde slepen en trimmen als videoblokken.
+    const olay = e.target.closest('.olay');
+    if (olay){
+      const i = +olay.dataset.o;
+      kiesOverlay(i);
+      const greep = e.target.closest('.greep');
+      const o = S.edl.overlay[i];
+      bewaar();
+      S.sleep = { overlay:i, startX:e.clientX,
+        greep: greep ? (greep.classList.contains('links')?'l':'r') : null,
+        origStart:o.tijdlijn_start, origDuur:o.duur };
+      e.preventDefault();
+      return;
+    }
+
+    const blok=e.target.closest('.blok');
+    if (!blok){
+      if (e.target.closest('.liniaal')||e.target.closest('.spoor')){ pauze(); ganaar(t,true); scrubben=true; }
+      return;
+    }
+    const i=+blok.dataset.i;
+    kies(i);
+    const greep=e.target.closest('.greep');
+    if (!greep){ pauze(); ganaar(S.edl.video[i].tijdlijn_start+0.05, true); }
+    bewaar();
+    S.sleep={ i, startX:e.clientX, greep: greep?(greep.classList.contains('links')?'l':'r'):null,
+      origStart:S.edl.video[i].tijdlijn_start, origDuur:S.edl.video[i].duur, origBron:S.edl.video[i].bron_start };
+    blok.classList.add('sleept');
+    e.preventDefault();
+  });
+
+  window.addEventListener('mousemove', e => {
+    const rect=$('#tl-inhoud').getBoundingClientRect();
+    if (scrubben){ ganaar(naarT(e.clientX-rect.left), true); return; }
+    if (!S.sleep) return;
+
+    if (S.sleep.overlay !== undefined){
+      const o = S.edl.overlay[S.sleep.overlay];
+      const dt = naarT(e.clientX - S.sleep.startX);
+      const klik = $('#snap').checked;
+      if (S.sleep.greep === 'l'){
+        let ns = S.sleep.origStart + dt; if (klik) ns = dichtstbijzijndeBeat(ns);
+        ns = klem(ns, 0, S.sleep.origStart + S.sleep.origDuur - 0.5);
+        o.duur = +(S.sleep.origStart + S.sleep.origDuur - ns).toFixed(3);
+        o.tijdlijn_start = +ns.toFixed(3);
+      } else if (S.sleep.greep === 'r'){
+        let ne = S.sleep.origStart + S.sleep.origDuur + dt; if (klik) ne = dichtstbijzijndeBeat(ne);
+        o.duur = +klem(ne - o.tijdlijn_start, 0.5, 30).toFixed(3);
+      } else {
+        let ns = S.sleep.origStart + dt; if (klik) ns = dichtstbijzijndeBeat(ns);
+        o.tijdlijn_start = +klem(ns, 0, Math.max(0, duur() - 0.5)).toFixed(3);
+      }
+      S.vuil = true; tekenOverlays();
+      $('#tl-status').textContent =
+        `titel · ${o.tijdlijn_start.toFixed(2)}s +${o.duur.toFixed(2)}s · niet opgeslagen`;
+      return;
+    }
+
+    const b=S.edl.video[S.sleep.i];
+    const dt=naarT(e.clientX-S.sleep.startX), klik=$('#snap').checked;
+    if (S.sleep.greep==='l'){
+      let ns=S.sleep.origStart+dt; if(klik) ns=dichtstbijzijndeBeat(ns);
+      ns=klem(ns, 0, S.sleep.origStart+S.sleep.origDuur-0.2);
+      const v=ns-S.sleep.origStart;
+      b.tijdlijn_start=+ns.toFixed(3);
+      b.duur=+(S.sleep.origDuur-v).toFixed(3);
+      b.bron_start=+Math.max(0,S.sleep.origBron+v).toFixed(3);
+    } else if (S.sleep.greep==='r'){
+      let ne=S.sleep.origStart+S.sleep.origDuur+dt; if(klik) ne=dichtstbijzijndeBeat(ne);
+      b.duur=+klem(ne-b.tijdlijn_start,0.2,30).toFixed(3);
+    } else {
+      let ns=S.sleep.origStart+dt; if(klik) ns=dichtstbijzijndeBeat(ns);
+      b.tijdlijn_start=+Math.max(0,ns).toFixed(3);
+    }
+    b.frames=Math.round(b.duur*(S.edl.canvas.fps||30));
+    // Alleen als er echt iets verschoven is. Een klik geeft altijd een minieme
+    // muisbeweging; zonder deze controle staat er na elke klik "niet opgeslagen".
+    if (Math.abs(b.tijdlijn_start-S.sleep.origStart) > 1e-4 ||
+        Math.abs(b.duur-S.sleep.origDuur) > 1e-4) S.vuil=true;
+    tekenBlokken();
+    $('#tl-status').textContent=`${b.clip} · ${b.tijdlijn_start.toFixed(2)}s +${b.duur.toFixed(2)}s · niet opgeslagen`;
+  });
+
+  window.addEventListener('mouseup', () => {
+    scrubben=false;
+    if (S.sleep){
+      $$('.blok.sleept').forEach(n=>n.classList.remove('sleept'));
+      if (S.sleep.overlay !== undefined){
+        const actief = S.edl.overlay[S.sleep.overlay];
+        S.edl.overlay.sort((a,b)=>a.tijdlijn_start-b.tijdlijn_start);
+        S.gekozenOverlay = S.edl.overlay.indexOf(actief);
+      } else {
+        S.edl.video.sort((a,b)=>a.tijdlijn_start-b.tijdlijn_start);
+      }
+      S.sleep=null; tekenAlles(); toonPaneel();
+    }
+  });
+
+  // Zoomen op de tijdlijn met een gewone scroll. Bewust niet met ctrl of cmd:
+  // dat is browserzoom en die duwt de interface buiten beeld.
+  scroll.addEventListener('wheel', e => {
+    if (e.ctrlKey||e.metaKey) return;      // wordt hieronder al geblokkeerd
+    if (Math.abs(e.deltaY) <= Math.abs(e.deltaX)) return;   // horizontaal scrollen
+    e.preventDefault();
+    const rect=$('#tl-inhoud').getBoundingClientRect();
+    const tOnder=naarT(e.clientX-rect.left);
+    S.pxs=klem(S.pxs*(e.deltaY<0?1.12:1/1.12), 2, 300);
+    tekenAlles();
+    scroll.scrollLeft=naarX(tOnder)-(e.clientX-scroll.getBoundingClientRect().left);
+  }, {passive:false});
+
+  // Browserzoom volledig blokkeren: bij inzoomen valt het rechterpaneel
+  // buiten beeld en is de tijdlijn niet meer bruikbaar.
+  window.addEventListener('wheel', e => { if (e.ctrlKey||e.metaKey) e.preventDefault(); }, {passive:false});
+  window.addEventListener('gesturestart', e => e.preventDefault());
+  window.addEventListener('gesturechange', e => e.preventDefault());
+
+  window.addEventListener('keydown', e => {
+    const cmd = e.metaKey||e.ctrlKey;
+    if (cmd && ['+','-','=','0'].includes(e.key)){ e.preventDefault(); return; }
+    if (['INPUT','TEXTAREA','SELECT'].includes(e.target.tagName)) return;
+    if (cmd && e.key==='s'){ e.preventDefault(); opslaan(); return; }
+    if (cmd && e.key==='z'){ e.preventDefault(); ongedaan(); return; }
+    if (e.code==='Space'){ e.preventDefault(); S.speelt?pauze():speel(); }
+    if (e.key==='ArrowLeft'){ pauze(); ganaar(S.tijd-(e.shiftKey?1:1/30), true); }
+    if (e.key==='ArrowRight'){ pauze(); ganaar(S.tijd+(e.shiftKey?1:1/30), true); }
+    if (e.key==='Home'){ ganaar(0,true); }
+    if (e.key==='l'||e.key==='L'){ zetVast(S.gekozen); }
+    if (e.key==='Backspace'||e.key==='Delete'){
+      // Verwijdert wat er ook geselecteerd is - shot of titel, zoals in een
+      // echte editor. Niets geselecteerd? Dan gebeurt er niets.
+      e.preventDefault();
+      if (S.gekozenOverlay !== null) verwijderOverlay();
+      else if (S.gekozen !== null) verwijder(S.gekozen);
+      else toast('Klik eerst een shot of titel aan.');
+    }
+    if (e.key==='['){ $('#btn-vorig').click(); }
+    if (e.key===']'){ $('#btn-volgend').click(); }
+  });
+
+  window.addEventListener('resize', () => { zetDoek(); tekenAlles(); });
+  window.addEventListener('beforeunload', e => { if (S.vuil){ e.preventDefault(); e.returnValue=''; } });
+}
+
+bind();
+laad().then(()=>{ zetTab(); toonPaneel(); ganaar(0,true); })
+      .catch(e => { $('#laden').innerHTML =
+        `<div style="text-align:center;color:var(--fout);font-size:14px">${e.message}</div>`; });
+</script>
+</body>
+</html>

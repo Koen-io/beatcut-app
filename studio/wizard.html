@@ -1,0 +1,584 @@
+<!doctype html>
+<html lang="nl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Maak mijn video — BeatCut</title>
+<link rel="stylesheet" href="/ui.css">
+<script src="/ui.js"></script>
+<style>
+/* ==================================================================
+   Wizard — vijf schermen, één bestand, geen buildstap.
+
+   Alles is groot en er staat per scherm één ding centraal. Wie hier
+   binnenkomt wil geen editor leren, die wil een video. De volledige
+   Studio is één klein linkje op het laatste scherm.
+
+   Kleuren, letters, glas en de themaschakelaar komen uit `/ui.css`.
+================================================================== */
+body{font-size:15px;line-height:1.6;min-height:100vh;height:auto;
+  display:flex;flex-direction:column}
+
+header{padding:14px 24px;display:flex;align-items:center;gap:14px;
+  position:sticky;top:0;z-index:20;
+  background:var(--glas);
+  -webkit-backdrop-filter:var(--waas);backdrop-filter:var(--waas);
+  border-bottom:1px solid var(--rand)}
+header .terug{width:34px;height:34px;border:1px solid var(--rand-fel);border-radius:var(--r-m);
+  display:grid;place-items:center;color:var(--tekst-2);background:var(--paneel-2);
+  box-shadow:inset 0 1px 0 var(--glas-glans),var(--schaduw-1);
+  transition:background var(--snel),color var(--snel)}
+header .terug:hover{background:var(--paneel-3);color:var(--tekst)}
+header h1{font-size:15px;font-weight:590;letter-spacing:-.008em}
+header .rek{flex:1}
+
+/* Stappenbalk */
+.stappen{display:flex;gap:5px;align-items:center;margin-right:4px}
+.stap{width:30px;height:3px;border-radius:2px;background:var(--rand-fel);
+  transition:background var(--rustig)}
+.stap.aan{background:var(--accent)}
+.stap.klaar{background:color-mix(in oklab,var(--accent) 45%,transparent)}
+
+main{flex:1;display:grid;place-items:center;padding:40px 24px 56px}
+.blad{width:min(680px,100%)}
+.blad h2{font-size:28px;line-height:1.2;font-weight:640;margin-bottom:9px;letter-spacing:-.025em}
+.blad .lead{color:var(--tekst-2);font-size:15.5px;margin-bottom:28px;max-width:52ch}
+
+/* Sleepvak */
+.sleep{border:1.5px dashed var(--rand-fel);border-radius:var(--r-l);padding:44px 28px;
+  text-align:center;cursor:pointer;background:var(--paneel);
+  -webkit-backdrop-filter:var(--waas);backdrop-filter:var(--waas);
+  transition:border-color var(--snel),background var(--snel)}
+.sleep:hover,.sleep.over{border-color:var(--accent);background:var(--accent-zacht)}
+.sleep b{display:block;font-size:16px;font-weight:600;margin-bottom:5px}
+.sleep span{color:var(--tekst-3);font-size:13.5px}
+
+.lijst{margin-top:16px;display:flex;flex-direction:column;gap:6px;max-height:230px;overflow-y:auto}
+.regel{display:flex;align-items:center;gap:10px;padding:9px 13px;background:var(--paneel-2);
+  border:1px solid var(--rand);border-radius:var(--r-m);font-size:13.5px;
+  box-shadow:inset 0 1px 0 var(--glas-glans)}
+.regel .naam{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.regel .bij{color:var(--tekst-3);font-family:var(--mono);font-size:12px}
+.regel.muziek .bij{color:var(--accent)}
+
+/* Velden */
+.veld{margin-bottom:24px}
+.veld > em{display:block;font-style:normal;font-size:11.5px;text-transform:uppercase;
+  letter-spacing:.06em;color:var(--tekst-3);font-weight:650;margin-bottom:9px}
+.veld input[type=text]{width:100%;padding:13px 15px;background:var(--paneel-3);
+  border:1px solid var(--rand-fel);border-radius:var(--r-m);font-size:16px;outline:0;
+  box-shadow:inset 0 1px 2px rgba(0,0,0,.04);
+  transition:border-color var(--snel),box-shadow var(--snel)}
+.veld input[type=text]:focus{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-zacht)}
+.keuzes{display:grid;gap:9px}
+.keuzes.drie{grid-template-columns:repeat(3,1fr)}
+.kaart{padding:15px 14px;background:var(--paneel-2);border:1px solid var(--rand);
+  border-radius:var(--r-m);text-align:left;
+  box-shadow:inset 0 1px 0 var(--glas-glans),var(--schaduw-1);
+  transition:border-color var(--snel),background var(--snel),transform var(--snel)}
+.kaart:hover{border-color:var(--rand-fel);background:var(--paneel-3)}
+.kaart:active{transform:scale(.99)}
+.kaart.aan{border-color:var(--accent);background:var(--accent-zacht);
+  box-shadow:0 0 0 1px var(--accent),var(--schaduw-1)}
+.kaart b{display:block;font-size:14.5px;font-weight:600;margin-bottom:2px}
+.kaart span{display:block;color:var(--tekst-3);font-size:12.5px;line-height:1.45}
+.kaart .kader{display:block;border:1.5px solid currentColor;border-radius:4px;
+  margin:0 auto 9px;opacity:.5}
+
+/* Aanvinkbare keuze met uitleg eronder. Groot raakvlak: het hele blok is
+   klikbaar, niet alleen het vinkje. */
+.keus{display:grid;grid-template-columns:auto 1fr;gap:4px 12px;align-items:start;
+  padding:13px 15px;margin-bottom:8px;cursor:pointer;border-radius:var(--r-m);
+  background:var(--paneel-2);border:1px solid var(--rand);
+  transition:border-color var(--snel),background var(--snel)}
+.keus:hover{border-color:var(--rand-fel);background:var(--paneel-3)}
+.keus input{position:absolute;opacity:0;pointer-events:none}
+.keus > span{width:19px;height:19px;border-radius:6px;margin-top:1px;
+  border:1.5px solid var(--rand-licht);display:grid;place-items:center;
+  transition:background var(--snel),border-color var(--snel)}
+.keus > span::after{content:"";width:9px;height:5px;margin-top:-2px;
+  border-left:2px solid #fff;border-bottom:2px solid #fff;
+  transform:rotate(-45deg) scale(0);transition:transform var(--snel)}
+.keus input:checked ~ span{background:var(--accent);border-color:var(--accent)}
+.keus input:checked ~ span::after{transform:rotate(-45deg) scale(1)}
+.keus b{font-size:14px;font-weight:590}
+.keus i{grid-column:2;font-style:normal;color:var(--tekst-3);font-size:12.5px;
+  line-height:1.45}
+
+/* Voorstel */
+.voorstel{padding:19px 21px;border-radius:var(--r-l);margin-bottom:22px;
+  background:var(--accent-zacht);border:1px solid color-mix(in oklab,var(--accent) 34%,transparent)}
+.voorstel b{font-size:16.5px;display:block;margin-bottom:3px;font-weight:600;letter-spacing:-.01em}
+.voorstel span{color:var(--tekst-2);font-size:14px}
+
+/* Voortgang */
+.balk{height:8px;border-radius:4px;background:var(--rand);overflow:hidden;margin:26px 0 14px}
+.balk i{display:block;height:100%;background:var(--accent);border-radius:4px;
+  transition:width .6s var(--soepel)}
+.stapregel{font-size:16px}
+.klein{font-family:var(--mono);font-size:12.5px;color:var(--tekst-3);margin-top:5px}
+
+/* Bevindingen */
+.bevinding{font-size:13.5px;line-height:1.5;padding:10px 13px;border-radius:var(--r-s);
+  margin-bottom:7px;background:var(--paneel-2);border:1px solid var(--rand);
+  border-left:3px solid var(--waarschuwing)}
+.bevinding.fout{border-left-color:var(--fout)}
+.oordeel{font-size:15.5px;font-weight:600;margin-bottom:13px}
+.oordeel.ok{color:var(--goed)} .oordeel.let{color:var(--waarschuwing)}
+.oordeel.fout{color:var(--fout)}
+video.uit{width:100%;border-radius:var(--r-l);background:var(--stage);margin-bottom:20px;
+  box-shadow:var(--schaduw-2)}
+
+/* Knoppen — basis staat in ui.css */
+.voet{display:flex;gap:10px;align-items:center;margin-top:28px}
+.voet .rek{flex:1}
+.knop{padding:12px 20px;font-size:14.5px;font-weight:560}
+.knop.tekst{padding:12px 6px}
+
+.melding{position:fixed;left:50%;bottom:28px;transform:translateX(-50%);
+  background:var(--paneel-3);
+  -webkit-backdrop-filter:var(--waas);backdrop-filter:var(--waas);
+  border:1px solid var(--rand-fel);border-radius:var(--r-m);
+  padding:12px 18px;font-size:14px;box-shadow:var(--schaduw-2);z-index:50;max-width:88vw}
+.melding.fout{border-color:var(--fout);color:var(--fout)}
+.verborgen{display:none !important}
+</style>
+</head>
+<body>
+
+<header>
+  <button class="terug" id="btn-terug" title="Terug">
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor"
+      stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M10 3L5 8l5 5"/></svg>
+  </button>
+  <h1>Maak mijn video</h1>
+  <div class="rek"></div>
+  <div class="stappen" id="stappen"></div>
+  <div data-thema-schakelaar></div>
+</header>
+
+<main><div class="blad" id="blad"></div></main>
+
+<script>
+/* ==================================================================
+   Toestand
+================================================================== */
+const W = {
+  scherm: 0,              // 0 beelden · 1 over de video · 2 stijl · 3 bezig · 4 klaar
+  project: '',
+  clips: [], muziek: null,
+  titel: '', vorm: '16:9', duur: 75,
+  stijl: '', voorstel: null, titels: null,
+  online: false, aiTitels: false,
+  stijlen: [],
+  resultaat: null,
+  lus: null,
+};
+
+const $ = s => document.querySelector(s);
+const api = async (url, opt) => {
+  const r = await fetch(url + (url.includes('?') ? '&' : '?') + 'project=' +
+                        encodeURIComponent(W.project), opt);
+  const d = await r.json().catch(()=>({}));
+  if (!r.ok || d.fout) throw new Error(d.fout || ('HTTP ' + r.status));
+  return d;
+};
+function melden(tekst, fout){
+  const el = document.createElement('div');
+  el.className = 'melding' + (fout ? ' fout' : '');
+  el.textContent = tekst;
+  document.body.appendChild(el);
+  setTimeout(()=>el.remove(), 4200);
+}
+
+/* ==================================================================
+   Schermen
+================================================================== */
+function teken(){
+  $('#stappen').innerHTML = [0,1,2,3].map(i =>
+    `<span class="stap ${W.scherm===i?'aan':W.scherm>i?'klaar':''}"></span>`).join('');
+  $('#stappen').classList.toggle('verborgen', W.scherm===4);
+  const b = $('#blad');
+  b.innerHTML = [schermBeelden, schermOver, schermStijl, schermBezig, schermKlaar][W.scherm]();
+  bind();
+  window.scrollTo(0,0);
+}
+
+function schermBeelden(){
+  const rijen = W.clips.map(c=>`<div class="regel">
+      <span class="naam">${c}</span></div>`).join('')
+    + (W.muziek ? `<div class="regel muziek"><span class="naam">${W.muziek}</span>
+        <span class="bij">muziek</span></div>` : '');
+  return `
+  <h2>Zet je beelden erin</h2>
+  <p class="lead">Sleep je video's hierheen, plus één muzieknummer. De editor kijkt
+    zelf welke stukken de moeite waard zijn — je hoeft niets uit te zoeken.</p>
+  <div class="sleep" id="sleepvak">
+    <b>Sleep je bestanden hierheen</b>
+    <span>of klik om ze te kiezen · video's en één muziekbestand</span>
+    <input type="file" id="kiezer" multiple accept="video/*,audio/*" class="verborgen">
+  </div>
+  <div class="lijst">${rijen}</div>
+  <div class="voet">
+    <span class="klein">${W.clips.length} video('s)${W.muziek?' · muziek gekozen':' · nog geen muziek'}</span>
+    <div class="rek"></div>
+    <button class="knop primair" id="btn-verder"
+      ${W.clips.length && W.muziek ? '' : 'disabled'}>Volgende</button>
+  </div>`;
+}
+
+function schermOver(){
+  const vormen = [['16:9','Liggend','YouTube, tv',44,25],
+                  ['9:16','Staand','Reels, TikTok',25,44],
+                  ['1:1','Vierkant','Feed',34,34]];
+  const lengtes = [[35,'Kort','een half minuutje'],
+                   [75,'Normaal','ruim een minuut'],
+                   [120,'Lang','twee minuten']];
+  return `
+  <h2>Waar gaat je video over?</h2>
+  <p class="lead">Deze drie dingen bepalen hoe je video eruitziet. De rest doet
+    de editor zelf. Intussen wordt je materiaal al ingelezen.</p>
+
+  <div class="veld"><em>Titel — komt in beeld aan het begin</em>
+    <input type="text" id="in-titel" value="${W.titel}" placeholder="Bijvoorbeeld: Alpen 2026"
+      maxlength="60" autocomplete="off">
+  </div>
+
+  <div class="veld"><em>Waar gaat hij heen?</em>
+    <div class="keuzes drie">
+      ${vormen.map(([v,t,waar,bw,bh])=>`
+        <button class="kaart ${W.vorm===v?'aan':''}" data-vorm="${v}" style="text-align:center">
+          <span class="kader" style="width:${bw}px;height:${bh}px"></span>
+          <b>${t}</b><span>${waar}</span></button>`).join('')}
+    </div>
+  </div>
+
+  <div class="veld"><em>Hoe lang ongeveer?</em>
+    <div class="keuzes drie">
+      ${lengtes.map(([d,t,uitleg])=>`
+        <button class="kaart ${W.duur===d?'aan':''}" data-duur="${d}">
+          <b>${t}</b><span>${uitleg}</span></button>`).join('')}
+    </div>
+  </div>
+
+  <div class="voet">
+    <button class="knop" data-terug="1">Terug</button>
+    <div class="rek"></div>
+    <button class="knop primair" id="btn-verder">Volgende</button>
+  </div>`;
+}
+
+function schermStijl(){
+  if (!W.voorstel){
+    return `<h2>Even kijken naar je beelden…</h2>
+      <p class="lead">De editor bekijkt en beluistert je materiaal. Dat duurt
+        meestal een halve tot anderhalve minuut.</p>
+      <div class="balk"><i id="wachtbalk" style="width:0%"></i></div>
+      <p class="stapregel" id="wachttekst">Bezig…</p>`;
+  }
+  const v = W.voorstel;
+  const kaarten = W.stijlen.map(s=>`
+    <button class="kaart ${W.stijl===s.naam?'aan':''}" data-stijl="${s.naam}">
+      <b>${s.titel}</b><span>${(s.omschrijving||'').slice(0,70)}</span></button>`).join('');
+  return `
+  <h2>Zo gaan we het monteren</h2>
+  <p class="lead">De editor heeft je beelden bekeken en er een manier van monteren
+    bij gezocht. Klopt het niet? Kies dan hieronder zelf.</p>
+  <div class="voorstel">
+    <b>${v.zin}</b>
+    <span>We monteren in de stijl <b style="display:inline">${titelVan(v.stijl)}</b>.</span>
+  </div>
+  <div class="veld"><em>Liever anders?</em>
+    <div class="keuzes drie">${kaarten}</div>
+  </div>
+  ${titelvak()}
+  <div class="veld"><em>Titels slimmer maken</em>
+    <label class="keus"><input type="checkbox" id="in-online"
+      ${W.online ? 'checked' : ''}><span></span>
+      <b>Preciezere plaatsnamen opzoeken</b>
+      <i>Vraagt het aan OpenStreetMap. Je coördinaten gaan dan naar buiten;
+         uit blijft alles op deze computer.</i></label>
+    <label class="keus"><input type="checkbox" id="in-ai"
+      ${W.aiTitels ? 'checked' : ''}><span></span>
+      <b>Laat de AI naar je beelden kijken</b>
+      <i>Schrijft titels over wát er te zien is in plaats van waar het is.
+         Vereist een API-sleutel en internet.</i></label>
+  </div>
+  <div class="voet">
+    <button class="knop" data-terug="1">Terug</button>
+    <div class="rek"></div>
+    <button class="knop primair" id="btn-maak">Maak mijn video</button>
+  </div>`;
+}
+
+function schermBezig(){
+  return `
+  <h2>Je video wordt gemaakt</h2>
+  <p class="lead">Alles gebeurt op je eigen computer. Er gaat niets naar buiten.</p>
+  <div class="balk"><i id="wachtbalk" style="width:0%"></i></div>
+  <p class="stapregel" id="wachttekst">Bezig…</p>
+  <p class="klein" id="wachtklein"></p>`;
+}
+
+function schermKlaar(){
+  const r = (W.resultaat && W.resultaat.review) || {};
+  const fouten = (r.bevindingen||[]).filter(b=>b.ernst==='fout');
+  const punten = (r.bevindingen||[]).filter(b=>b.ernst==='let op');
+  const oordeel = !r.bevindingen ? ''
+    : fouten.length ? `<p class="oordeel fout">${fouten.length} probleem(en) gevonden</p>`
+    : punten.length ? `<p class="oordeel let">Nagekeken — ${punten.length} punt(je) om naar te kijken</p>`
+    : `<p class="oordeel ok">Nagekeken en helemaal in orde</p>`;
+  // Hier de korte formulering: geen seconden en geen dB, alleen wat je eraan hebt.
+  const lijst = [...fouten, ...punten].map(b=>`
+    <div class="bevinding ${b.ernst==='fout'?'fout':''}">${b.kort||b.boodschap}</div>`).join('');
+  const bestand = (W.resultaat && W.resultaat.bestand) || '';
+  return `
+  <h2>Klaar. Dit is je video.</h2>
+  <p class="lead">Bevalt hij niet helemaal? Probeer een andere stijl — dat duurt
+    maar een minuut en je materiaal is al ingelezen.</p>
+  <video class="uit" src="/media/render/${encodeURIComponent(bestand)}?project=${encodeURIComponent(W.project)}"
+    controls playsinline preload="metadata"></video>
+  ${oordeel}${lijst}
+  <div class="voet">
+    <button class="knop primair" id="btn-map">Map openen</button>
+    <button class="knop" data-terug="2">Andere stijl proberen</button>
+    <div class="rek"></div>
+    <button class="knop tekst" id="btn-studio">Zelf bijschaven →</button>
+  </div>`;
+}
+
+function titelVan(naam){
+  const s = W.stijlen.find(x=>x.naam===naam);
+  return s ? s.titel : naam;
+}
+
+/* Laat zien welke titels er in de video komen, en waarom. Een titel die uit
+   het niets opduikt voelt als een gok; met "opgenomen bij Mittenwald, op
+   11 juni" zie je dat hij ergens op gebaseerd is. */
+function titelvak(){
+  if (!W.titels) return '';
+  if (!W.titels.length){
+    return `<p class="klein" style="margin-bottom:22px">Geen plaatsbepaling in je
+      beelden gevonden — je krijgt alleen de titel die je zelf opgaf.</p>`;
+  }
+  return `<div class="veld"><em>Titels die erin komen</em>
+    ${W.titels.map(t=>`<div class="regel">
+      <span class="naam"><b>${t.eyebrow ? t.eyebrow + ' · ' : ''}${t.titel}</b>
+        ${t.onder ? ' · ' + t.onder : ''}<br>
+        <span style="color:var(--tekst-3);font-size:12px">${t.waarom}</span></span>
+      <span class="bij">${t.tijdlijn_start.toFixed(0)}s</span>
+    </div>`).join('')}
+    <p class="klein">Uit de opnamelocatie en -datum in je bestanden. Je kunt ze
+      later in de Studio aanpassen.</p>
+  </div>`;
+}
+
+async function haalTitels(){
+  try{
+    const r = await api('/api/titelvoorstel?titel=' + encodeURIComponent(W.titel)
+                        + '&online=' + (W.online ? '1' : '0'));
+    W.titels = r.titels || [];
+  }catch{ W.titels = []; }
+  if (W.scherm === 2) teken();
+}
+
+/* ==================================================================
+   Bediening
+================================================================== */
+function bind(){
+  $('#btn-terug').onclick = () => {
+    if (W.scherm === 0) location.href = '/';
+    else if (W.scherm === 3) melden('Even wachten tot de video klaar is.');
+    else ga(W.scherm - 1);
+  };
+  document.querySelectorAll('[data-terug]').forEach(b =>
+    b.onclick = () => ga(W.scherm - (+b.dataset.terug)));
+
+  const vak = $('#sleepvak'), kiezer = $('#kiezer');
+  if (vak){
+    vak.onclick = () => kiezer.click();
+    kiezer.onchange = () => zetErin([...kiezer.files]);
+    ['dragenter','dragover'].forEach(e => vak.addEventListener(e, ev => {
+      ev.preventDefault(); vak.classList.add('over'); }));
+    ['dragleave','drop'].forEach(e => vak.addEventListener(e, ev => {
+      ev.preventDefault(); vak.classList.remove('over'); }));
+    vak.addEventListener('drop', ev => zetErin([...ev.dataTransfer.files]));
+  }
+
+  const titel = $('#in-titel');
+  if (titel) titel.oninput = () => { W.titel = titel.value; };
+
+  document.querySelectorAll('[data-vorm]').forEach(b => b.onclick = () => {
+    W.vorm = b.dataset.vorm; teken(); });
+  document.querySelectorAll('[data-duur]').forEach(b => b.onclick = () => {
+    W.duur = +b.dataset.duur; teken(); });
+  document.querySelectorAll('[data-stijl]').forEach(b => b.onclick = () => {
+    W.stijl = b.dataset.stijl; teken(); });
+
+  const verder = $('#btn-verder');
+  if (verder) verder.onclick = () => {
+    if (W.scherm === 0) startVerwerken();
+    else ga(2);
+  };
+  const online = $('#in-online');
+  if (online) online.onchange = () => { W.online = online.checked; haalTitels(); };
+  const ai = $('#in-ai');
+  if (ai) ai.onchange = () => { W.aiTitels = ai.checked; };
+
+  const maak = $('#btn-maak');
+  if (maak) maak.onclick = maakVideo;
+  const map = $('#btn-map');
+  if (map) map.onclick = async () => {
+    try{ await api('/api/openmap', {method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({map:'renders'})}); }
+    catch(e){ melden('Map openen lukte niet: ' + e.message, true); }
+  };
+  const studio = $('#btn-studio');
+  if (studio) studio.onclick = () =>
+    location.href = '/studio?project=' + encodeURIComponent(W.project);
+}
+
+function ga(n){
+  clearInterval(W.lus); W.lus = null;
+  W.scherm = Math.max(0, n);
+  teken();
+  if (W.scherm === 2 && !W.voorstel) volgVerwerken();
+}
+
+/* ---------- bestanden ---------- */
+async function zetErin(bestanden){
+  if (!bestanden.length) return;
+  if (!W.project){
+    // Projectnaam uit de datum: de gebruiker hoeft er niet over na te denken.
+    const d = new Date();
+    W.project = 'video-' + d.toISOString().slice(0,10) + '-' +
+                String(d.getHours()).padStart(2,'0') + String(d.getMinutes()).padStart(2,'0');
+    try{
+      await fetch('/api/project/nieuw', {method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({naam: W.project})});
+    }catch(e){ melden('Project aanmaken mislukte: ' + e.message, true); W.project=''; return; }
+  }
+  for (const f of bestanden){
+    const muziek = /^audio\//.test(f.type) || /\.(mp3|wav|m4a|aac|flac|ogg)$/i.test(f.name);
+    try{
+      // Het bestand gaat als ruwe body mee, met de naam in een header. Een
+      // FormData zou de server niet begrijpen, en een clip van 300 MB hoeft
+      // dan ook niet eerst in het geheugen te worden opgebouwd.
+      const r = await fetch('/api/upload?project=' + encodeURIComponent(W.project), {
+        method: 'POST',
+        headers: {'X-Bestandsnaam': encodeURIComponent(f.name)},
+        body: f,
+      });
+      const d = await r.json().catch(()=>({}));
+      if (!r.ok || d.fout) throw new Error(d.fout || ('HTTP ' + r.status));
+      if (muziek) W.muziek = f.name; else W.clips.push(f.name);
+      teken();
+    }catch(e){ melden('Uploaden van ' + f.name + ' mislukte: ' + e.message, true); }
+  }
+}
+
+/* ---------- inlezen en analyseren ---------- */
+async function startVerwerken(){
+  try{ await api('/api/wizard/verwerk', {method:'POST'}); }
+  catch(e){ melden('Starten mislukte: ' + e.message, true); return; }
+  ga(1);
+  // De gebruiker beantwoordt nu de vragen terwijl het inlezen doorloopt.
+  W.klaarMetVerwerken = false;
+  volgVerwerkenStil();
+}
+
+function volgVerwerkenStil(){
+  const lus = setInterval(async () => {
+    let v; try{ v = await api('/api/voortgang'); }catch{ return; }
+    if (!v.bezig){
+      clearInterval(lus);
+      W.klaarMetVerwerken = (v.fase !== 'fout');
+      W.verwerkFout = v.fase === 'fout' ? (v.fout || 'onbekende fout') : '';
+      if (W.verwerkFout) melden('Inlezen mislukte: ' + W.verwerkFout, true);
+      if (W.scherm === 2) volgVerwerken();
+    }
+  }, 1200);
+}
+
+function volgVerwerken(){
+  // Ging het inlezen al mis terwijl de gebruiker nog aan het typen was, dan
+  // meteen terug in plaats van eindeloos naar een balk laten kijken.
+  if (W.verwerkFout){
+    melden('Inlezen mislukte: ' + W.verwerkFout, true);
+    W.verwerkFout = ''; ga(0); return;
+  }
+  if (W.klaarMetVerwerken){ haalVoorstel(); return; }
+  clearInterval(W.lus);
+  W.lus = setInterval(async () => {
+    let v; try{ v = await api('/api/voortgang'); }catch{ return; }
+    const balk = $('#wachtbalk'), tekst = $('#wachttekst');
+    if (balk) balk.style.width = (v.percentage||0) + '%';
+    if (tekst) tekst.textContent = v.tekst || 'Bezig…';
+    if (!v.bezig){
+      clearInterval(W.lus); W.lus = null;
+      if (v.fase === 'fout'){ melden('Inlezen mislukte: ' + v.fout, true); ga(0); return; }
+      W.klaarMetVerwerken = true;
+      haalVoorstel();
+    }
+  }, 800);
+}
+
+async function haalVoorstel(){
+  try{
+    W.voorstel = await api('/api/stijlvoorstel');
+    if (!W.stijl) W.stijl = W.voorstel.stijl;
+  }catch(e){ melden('Stijl bepalen lukte niet: ' + e.message, true); return; }
+  if (W.scherm === 2) teken();
+  haalTitels();
+}
+
+/* ---------- monteren en renderen ---------- */
+async function maakVideo(){
+  try{
+    await api('/api/wizard/maak', {method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({titel: W.titel, vorm: W.vorm, duur: W.duur, stijl: W.stijl,
+                            online_plaatsnamen: !!W.online, ai_titels: !!W.aiTitels})});
+  }catch(e){ melden('Starten mislukte: ' + e.message, true); return; }
+  ga(3);
+  clearInterval(W.lus);
+  W.lus = setInterval(async () => {
+    let v; try{ v = await api('/api/voortgang'); }catch{ return; }
+    const balk = $('#wachtbalk'), tekst = $('#wachttekst'), klein = $('#wachtklein');
+    if (balk) balk.style.width = (v.percentage||0) + '%';
+    if (tekst) tekst.textContent = (v.tekst||'Bezig…') +
+      (v.totaal > 1 ? ` — ${v.klaar} van ${v.totaal}` : '');
+    if (klein) klein.textContent = Math.round(v.percentage||0) + '%' +
+      (v.resterend != null ? ` · nog ongeveer ${v.resterend < 60
+        ? Math.max(1,Math.round(v.resterend)) + ' seconden'
+        : Math.round(v.resterend/60) + ' minuten'}` : '');
+    if (!v.bezig){
+      clearInterval(W.lus); W.lus = null;
+      if (v.fase === 'fout'){ melden('Het maken mislukte: ' + v.fout, true); ga(2); return; }
+      W.resultaat = v;
+      ga(4);
+    }
+  }, 700);
+}
+
+/* ==================================================================
+   Start
+================================================================== */
+(async function(){
+  // Een bestaand project kan meegegeven worden, bijvoorbeeld vanaf het
+  // startscherm: dan slaan we het slepen over.
+  const q = new URLSearchParams(location.search);
+  W.project = q.get('project') || '';
+  try{ W.stijlen = await fetch('/api/stijlen').then(r=>r.json()); }catch{ W.stijlen = []; }
+  if (W.project){
+    try{
+      const st = await api('/api/status');
+      W.clips = new Array(st.aantal_clips || 0).fill('bestaand bestand');
+      W.muziek = st.muziek || null;
+      if (st.is_geanalyseerd){ W.klaarMetVerwerken = true; W.scherm = 1; }
+    }catch{}
+  }
+  teken();
+})();
+</script>
+</body>
+</html>

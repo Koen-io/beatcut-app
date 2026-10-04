@@ -1,0 +1,590 @@
+<!doctype html>
+<html lang="nl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>BeatCut Video Editor</title>
+<link rel="stylesheet" href="/ui.css">
+<script src="/ui.js"></script>
+<style>
+/* ==================================================================
+   Startscherm
+
+   Uitgangspunt: iemand die dit voor het eerst opent moet zonder uitleg
+   snappen wat de volgende stap is. Daarom grote knoppen met een zin
+   eronder die zegt wat er gebeurt, en een stappenbalk die laat zien
+   waar je bent.
+
+   Kleuren, letters, glas en de themaschakelaar komen uit `/ui.css`.
+   Hier staat alleen wat eigen is aan dit scherm.
+================================================================== */
+/* Bewust geen `height:100%` op body: dan klemt de pagina vast op
+   schermhoogte en kun je niet meer naar de clips eronder scrollen. */
+body{font-size:15px;min-height:100vh;height:auto;min-width:720px}
+
+.wikkel{max-width:1080px;margin:0 auto;padding:34px 28px 80px}
+
+/* ---------------- kop ---------------- */
+.kop{display:flex;align-items:center;gap:14px;margin-bottom:8px}
+.kop .merk{width:34px;height:34px;border-radius:10px;flex:none;
+  background:linear-gradient(180deg,var(--accent),var(--accent-diep));
+  display:grid;place-items:center;color:#fff;
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.3), var(--schaduw-1)}
+.kop h1{font-size:24px;font-weight:640;letter-spacing:-.021em}
+.kop p{color:var(--tekst-3);font-size:13.5px}
+.kop .rek{flex:1}
+
+/* ---------------- stappenbalk ---------------- */
+.stappen{display:flex;align-items:center;gap:0;margin:26px 0 30px;padding:6px;
+  border-radius:var(--r-l);background:var(--glas);
+  -webkit-backdrop-filter:var(--waas);backdrop-filter:var(--waas);
+  border:1px solid var(--rand);
+  box-shadow:inset 0 1px 0 var(--glas-glans),var(--schaduw)}
+.stap{flex:1;display:flex;align-items:center;gap:11px;padding:12px 14px;border-radius:var(--r-m);
+  color:var(--tekst-3);transition:background var(--snel),color var(--snel)}
+.stap .bol{width:26px;height:26px;border-radius:50%;border:1.5px solid var(--rand-fel);
+  display:grid;place-items:center;font:650 12.5px var(--sans);flex-shrink:0}
+.stap b{display:block;font-size:13.5px;font-weight:590;line-height:1.2}
+.stap span{font-size:12px;color:var(--tekst-3);line-height:1.3}
+.stap.klaar{color:var(--tekst-2)}
+.stap.klaar .bol{border-color:transparent;background:var(--goed);color:#fff}
+.stap.nu{background:var(--paneel-3);color:var(--tekst);box-shadow:var(--schaduw-1)}
+.stap.nu .bol{border-color:transparent;background:var(--accent);color:var(--op-accent)}
+
+/* ---------------- de twee wegen ---------------- */
+/* Het eerste scherm is één beslissing, midden in beeld. Twee kaarten
+   naast elkaar, even groot, met genoeg uitleg om te kiezen zonder ze
+   allebei te hoeven proberen. */
+#scherm-keuze{min-height:calc(100vh - 190px);display:grid;place-items:center}
+.keuzevak{display:grid;grid-template-columns:1fr 1fr;gap:18px;width:100%}
+@media (max-width:820px){ .keuzevak{grid-template-columns:1fr} }
+
+.grotestap{display:flex;flex-direction:column;align-items:flex-start;gap:0;
+  text-align:left;padding:30px 28px 28px;border-radius:var(--r-xl);color:inherit;
+  min-height:250px;
+  background:var(--glas);
+  -webkit-backdrop-filter:var(--waas);backdrop-filter:var(--waas);
+  border:1px solid var(--rand);
+  box-shadow:inset 0 1px 0 var(--glas-glans),var(--schaduw-2);
+  transition:transform var(--snel),box-shadow var(--rustig),border-color var(--snel)}
+.grotestap:hover{border-color:var(--accent);transform:translateY(-2px)}
+.grotestap:active{transform:scale(.995)}
+.grotestap .ikoon{flex:none;width:56px;height:56px;border-radius:16px;margin-bottom:18px;
+  background:linear-gradient(180deg,var(--accent),var(--accent-diep));
+  color:#fff;display:grid;place-items:center;
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.3),var(--schaduw-1)}
+.grotestap b{display:block;font-size:23px;font-weight:640;letter-spacing:-.022em;
+  margin-bottom:7px}
+.grotestap span{display:block;color:var(--tekst-2);font-size:14px;line-height:1.5}
+.grotestap em{margin-top:auto;padding-top:16px;font-style:normal;font-size:11.5px;
+  font-weight:650;letter-spacing:.05em;text-transform:uppercase;color:var(--accent)}
+/* De tweede weg is even belangrijk maar niet de standaard: een rustiger
+   ikoon, verder alles gelijk. */
+.grotestap.tweede .ikoon{background:var(--paneel-3);color:var(--tekst-2);
+  border:1px solid var(--rand-fel)}
+.grotestap.tweede:hover .ikoon{color:var(--accent)}
+
+.terugknop{float:right;margin-left:12px}
+
+.kaart{padding:22px;margin-bottom:18px;border-radius:var(--r-l);
+  background:var(--glas);
+  -webkit-backdrop-filter:var(--waas);backdrop-filter:var(--waas);
+  border:1px solid var(--rand);
+  box-shadow:inset 0 1px 0 var(--glas-glans),var(--schaduw)}
+.kaart h2{font-size:17px;font-weight:620;margin-bottom:4px;letter-spacing:-.014em}
+.kaart .uitleg{color:var(--tekst-3);font-size:13.5px;margin-bottom:18px;max-width:64ch}
+
+/* ---------------- knoppen ---------------- */
+/* Basis staat in ui.css; hier alleen het formaat dat bij dit scherm past. */
+.knop{height:44px;padding:0 20px;font-size:14.5px;font-weight:560}
+.knop.groot{height:52px;padding:0 26px;font-size:15.5px}
+.knop[disabled]{opacity:.42;pointer-events:none}
+.knoprij{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+
+/* ---------------- projecten ---------------- */
+.projecten{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:12px}
+.pkaart{text-align:left;background:var(--paneel-2);border:1px solid var(--rand);
+  border-radius:var(--r-m);padding:15px;
+  box-shadow:inset 0 1px 0 var(--glas-glans),var(--schaduw-1);
+  transition:border-color var(--snel),background var(--snel),transform var(--snel)}
+.pkaart:hover{border-color:var(--rand-fel);background:var(--paneel-3);transform:translateY(-1px)}
+.pkaart b{display:block;font-size:15px;font-weight:620;margin-bottom:4px;letter-spacing:-.01em}
+.pkaart .meta{color:var(--tekst-3);font-size:12.5px;font-family:var(--mono)}
+.pkaart .vlag{display:inline-block;margin-top:10px;padding:3px 9px;border-radius:20px;
+  font-size:10.5px;font-weight:650;letter-spacing:.02em;text-transform:uppercase}
+.vlag.klaar{background:color-mix(in oklab,var(--goed) 16%,transparent);color:var(--goed)}
+.vlag.bezig{background:color-mix(in oklab,var(--waarschuwing) 18%,transparent);color:var(--waarschuwing)}
+.vlag.nieuw{background:var(--accent-zacht);color:var(--accent)}
+.pkaart.nieuw{border-style:dashed;box-shadow:none;background:transparent;
+  display:flex;flex-direction:column;align-items:center;
+  justify-content:center;gap:9px;color:var(--tekst-3);min-height:118px;text-align:center}
+.pkaart.nieuw:hover{color:var(--accent);border-color:var(--accent)}
+
+/* ---------------- sleepzone ---------------- */
+.sleep{border:1.5px dashed var(--rand-fel);border-radius:var(--r-l);padding:38px 24px;
+  text-align:center;transition:border-color var(--snel),background var(--snel);cursor:pointer}
+.sleep:hover,.sleep.over{border-color:var(--accent);background:var(--accent-zacht)}
+.sleep svg{margin:0 auto 14px;color:var(--tekst-3)}
+.sleep.over svg,.sleep:hover svg{color:var(--accent)}
+.sleep b{display:block;font-size:16px;font-weight:620;margin-bottom:5px}
+.sleep span{color:var(--tekst-3);font-size:13.5px}
+
+/* ---------------- bestandsraster ---------------- */
+.raster{display:grid;grid-template-columns:repeat(auto-fill,minmax(178px,1fr));gap:12px}
+.tegel{position:relative;background:var(--paneel-2);border:1px solid var(--rand);
+  border-radius:var(--r-m);overflow:hidden;cursor:pointer;
+  box-shadow:var(--schaduw-1);
+  transition:border-color var(--snel),transform var(--snel),box-shadow var(--snel)}
+.tegel:hover{border-color:var(--rand-fel);transform:translateY(-1px);box-shadow:var(--schaduw)}
+.tegel.aan{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent),var(--schaduw-1)}
+.tegel.uit{opacity:.42}
+.tegel .beeld{height:100px;background:var(--stage) center/cover no-repeat;position:relative}
+.tegel .vink{position:absolute;top:8px;left:8px;width:22px;height:22px;border-radius:7px;
+  background:rgba(0,0,0,.42);-webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px);
+  border:1px solid rgba(255,255,255,.55);display:grid;place-items:center;
+  color:transparent;font-size:13px;font-weight:700}
+.tegel.aan .vink{background:var(--accent);border-color:transparent;color:#fff}
+.tegel .info{padding:9px 10px}
+.tegel .info b{display:block;font-size:12px;font-weight:590;white-space:nowrap;
+  overflow:hidden;text-overflow:ellipsis}
+.tegel .info span{font-size:11px;color:var(--tekst-3);font-family:var(--mono)}
+.badges{display:flex;gap:4px;flex-wrap:wrap;margin-top:7px}
+.badge{font-size:10px;font-weight:650;padding:2px 6px;border-radius:5px;letter-spacing:.02em}
+.badge.goed{background:color-mix(in oklab,var(--goed) 16%,transparent);color:var(--goed)}
+.badge.let{background:color-mix(in oklab,var(--waarschuwing) 18%,transparent);color:var(--waarschuwing)}
+.badge.slecht{background:color-mix(in oklab,var(--fout) 16%,transparent);color:var(--fout)}
+.badge.neutraal{background:var(--rand);color:var(--tekst-2)}
+
+/* ---------------- voortgang ---------------- */
+.voortgang{display:flex;align-items:center;gap:14px;background:var(--paneel-2);
+  border:1px solid var(--rand);border-radius:var(--r-m);padding:15px 17px;
+  box-shadow:inset 0 1px 0 var(--glas-glans)}
+.spinner{width:20px;height:20px;border:2px solid var(--rand-fel);
+  border-top-color:var(--accent);border-radius:50%;animation:draai .7s linear infinite;flex-shrink:0}
+@keyframes draai{to{transform:rotate(360deg)}}
+.balk{flex:1;height:6px;border-radius:3px;background:var(--rand);overflow:hidden}
+.balk i{display:block;height:100%;background:var(--accent);border-radius:3px;
+  transition:width var(--rustig)}
+
+input[type=text]{width:100%;background:var(--paneel-3);border:1px solid var(--rand-fel);
+  border-radius:var(--r-m);padding:0 14px;height:44px;color:var(--tekst);font:inherit;outline:none;
+  box-shadow:inset 0 1px 2px rgba(0,0,0,.04);transition:border-color var(--snel),box-shadow var(--snel)}
+input[type=text]:focus{border-color:var(--accent);
+  box-shadow:0 0 0 3px var(--accent-zacht)}
+
+#toast{position:fixed;bottom:26px;left:50%;transform:translateX(-50%) translateY(80px);
+  background:var(--paneel-3);
+  -webkit-backdrop-filter:var(--waas);backdrop-filter:var(--waas);
+  border:1px solid var(--rand-fel);border-radius:var(--r-m);
+  padding:13px 20px;font-size:14px;box-shadow:var(--schaduw-2);opacity:0;
+  transition:all var(--rustig);z-index:100;pointer-events:none;max-width:70vw}
+#toast.aan{opacity:1;transform:translateX(-50%) translateY(0)}
+#toast.fout{border-color:var(--fout);color:var(--fout)}
+.verborgen{display:none !important}
+</style>
+</head>
+<body>
+<div class="wikkel">
+  <div class="kop">
+    <span class="merk">
+      <svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor"
+        stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+        <rect x="2.5" y="4.5" width="15" height="11" rx="2.6"/>
+        <path d="M8.2 8.4l4.2 2.1-4.2 2.1z" fill="currentColor" stroke="none"/>
+      </svg>
+    </span>
+    <div><h1>BeatCut</h1>
+      <p>Zet je beelden en een muziektrack erin. De rest gaat vanzelf.</p></div>
+    <div class="rek"></div>
+    <div data-thema-schakelaar></div>
+  </div>
+
+  <!-- Eerste scherm: twee wegen, verder niets. Wie hier binnenkomt hoeft
+       maar één ding te beslissen. -->
+  <div id="scherm-keuze">
+    <div class="keuzevak">
+      <button class="grotestap" onclick="location.href='/wizard'">
+        <span class="ikoon">
+          <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+            stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M7 3.5l1.3 3.2L11.5 8 8.3 9.3 7 12.5 5.7 9.3 2.5 8l3.2-1.3z"/>
+            <path d="M17 11l1 2.5 2.5 1-2.5 1-1 2.5-1-2.5-2.5-1 2.5-1z"/>
+          </svg>
+        </span>
+        <b>Maak mijn video</b>
+        <span>Beelden erin, drie vragen, en klaar. De editor kiest de beelden,
+          knipt op de muziek en zet de titels erbij.</span>
+        <em>Aanbevolen</em>
+      </button>
+
+      <button class="grotestap tweede" id="btn-zelf">
+        <span class="ikoon">
+          <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+            stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="2.5" y="5" width="19" height="5" rx="1.4"/>
+            <rect x="2.5" y="13.5" width="12" height="5" rx="1.4"/>
+            <path d="M17.5 12v8"/>
+          </svg>
+        </span>
+        <b>Zelf monteren</b>
+        <span>De volledige editor: tijdlijn, shots ruilen, titels, overgangen
+          en een voorvertoning van alles wat je verandert.</span>
+      </button>
+    </div>
+  </div>
+
+  <div id="scherm-projecten" class="verborgen">
+    <div class="kaart">
+      <button class="knop klein terugknop" id="btn-naar-keuze">← Terug</button>
+      <h2>Kies een project</h2>
+      <p class="uitleg">Een project is een verzameling beelden met één muziektrack.
+        Voor elke video die je maakt, maak je een nieuw project.</p>
+      <div class="projecten" id="projectlijst"></div>
+    </div>
+  </div>
+
+  <div id="scherm-project" class="verborgen">
+    <div class="stappen" id="stappen"></div>
+
+    <div class="kaart" id="vak-beelden">
+      <h2>1 · Beelden toevoegen</h2>
+      <p class="uitleg">Sleep je video's hierheen, of open de map en zet ze er zelf in.
+        MP4 en MOV werken; ruwe bestanden uit de camera zijn het beste, want daar
+        zit nog meetinformatie in.</p>
+      <div class="sleep" id="sleepzone">
+        <svg width="42" height="42" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+          stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 16V4M12 4L7 9M12 4l5 5"/><path d="M3 15v3a3 3 0 003 3h12a3 3 0 003-3v-3"/></svg>
+        <b>Sleep je video's en muziek hierheen</b>
+        <span>Of klik om te bladeren</span>
+      </div>
+      <input type="file" id="bestandkiezer" multiple accept="video/*,audio/*" class="verborgen">
+      <div class="knoprij" style="margin-top:16px">
+        <button class="knop" id="btn-openmap">
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+            <path d="M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2z"/></svg>
+          Open de map in Finder</button>
+        <button class="knop" id="btn-vernieuw">Vernieuwen</button>
+      </div>
+    </div>
+
+    <div class="kaart" id="vak-bestanden">
+      <h2 id="kop-bestanden">2 · Wat er in het project zit</h2>
+      <p class="uitleg" id="uitleg-bestanden"></p>
+      <div id="voortgangvak" class="verborgen" style="margin-bottom:18px">
+        <div class="voortgang"><div class="spinner"></div>
+          <div style="flex:1"><b id="voortgang-tekst">Bezig…</b>
+            <div class="balk" style="margin-top:8px"><i id="voortgang-balk" style="width:30%"></i></div>
+          </div></div>
+      </div>
+      <div class="raster" id="cliplijst"></div>
+      <div id="muziekvak" style="margin-top:16px"></div>
+    </div>
+
+    <div class="kaart" id="vak-start">
+      <h2 id="kop-start">3 · Analyseren</h2>
+      <p class="uitleg" id="uitleg-start"></p>
+      <div class="knoprij">
+        <button class="knop primair groot" id="btn-actie"></button>
+        <button class="knop" id="btn-opnieuw">Opnieuw analyseren</button>
+        <button class="knop" id="btn-terug">Ander project</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<script>
+"use strict";
+
+const S = { projecten:[], project:null, status:null, bronnen:[], muziek:[], uit:new Set(), pollen:null };
+const $ = s => document.querySelector(s);
+const $$ = s => [...document.querySelectorAll(s)];
+const bytesTekst = b => b > 1e9 ? (b/1e9).toFixed(1)+' GB' : (b/1e6).toFixed(0)+' MB';
+const duurTekst = s => s>=60 ? `${Math.floor(s/60)}:${Math.round(s%60).toString().padStart(2,'0')}` : `${s.toFixed(0)}s`;
+
+function toast(t, fout){
+  const el=$('#toast'); el.textContent=t; el.className='aan'+(fout?' fout':'');
+  clearTimeout(el._t); el._t=setTimeout(()=>el.className='', 3400);
+}
+async function api(pad, opties){
+  const r=await fetch(pad, opties);
+  const d=await r.json().catch(()=>({}));
+  if(!r.ok) throw new Error(d.fout||r.statusText);
+  return d;
+}
+
+/* ================= projectenlijst ================= */
+async function toonProjecten(){
+  const d = await api('/api/projecten');
+  S.projecten = d.projecten;
+  const el = $('#projectlijst');
+  el.innerHTML = S.projecten.map(p=>{
+    const vlag = p.bezig ? '<span class="vlag bezig">bezig</span>'
+      : p.heeft_montage ? '<span class="vlag klaar">montage klaar</span>'
+      : p.aantal_clips===0 ? '<span class="vlag nieuw">leeg</span>'
+      : `<span class="vlag nieuw">${p.stap}</span>`;
+    return `<button class="pkaart" data-p="${p.naam}">
+      <b>${p.naam}</b>
+      <div class="meta">${p.aantal_clips} clips${p.totaal_duur?' · '+duurTekst(p.totaal_duur):''}${p.heeft_muziek?' · muziek':''}</div>
+      ${vlag}</button>`;
+  }).join('') + `<button class="pkaart nieuw" data-nieuw="1">
+      <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"
+        stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+      <b style="font-size:14px">Nieuw project</b></button>`;
+
+  $$('#projectlijst [data-p]').forEach(b => b.onclick = () => openProject(b.dataset.p));
+  $('#projectlijst [data-nieuw]').onclick = nieuwProject;
+}
+
+async function nieuwProject(){
+  const naam = prompt('Hoe heet deze video?', 'vakantie-' + new Date().toISOString().slice(0,10));
+  if (!naam) return;
+  try{
+    const p = await api('/api/project/nieuw',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({naam})});
+    await toonProjecten();
+    openProject(p.naam);
+  }catch(e){ toast('Mislukt: '+e.message, true); }
+}
+
+/* ================= schermen ================= */
+/* Drie schermen op één pagina: de keuze, de projectlijst, en het project
+   zelf. Ze staan alle drie in de HTML en worden verborgen en getoond —
+   dat is minder werk dan drie pagina's en de terugknop blijft snel. */
+function toonScherm(naam){
+  ['keuze','projecten','project'].forEach(n =>
+    $('#scherm-'+n).classList.toggle('verborgen', n !== naam));
+  window.scrollTo(0,0);
+}
+
+async function openProject(naam){
+  S.project = naam;
+  history.replaceState({}, '', '?project='+encodeURIComponent(naam));
+  toonScherm('project');
+  await ververs();
+  startPollen();
+}
+
+async function ververs(){
+  S.status = await api('/api/status?project='+encodeURIComponent(S.project));
+  const b = await api('/api/bronnen?project='+encodeURIComponent(S.project));
+  S.bronnen = b.clips; S.muziek = b.muziek;
+  tekenStappen(); tekenBestanden(); tekenActie();
+}
+
+function tekenStappen(){
+  const s = S.status;
+  const lijst = [
+    ['beelden','Beelden','video\'s toevoegen', s.aantal_clips>0],
+    ['muziek','Muziek','één track kiezen', s.heeft_muziek],
+    ['analyse','Analyse','de computer bekijkt alles', s.is_geanalyseerd],
+    ['montage','Montage','shots kiezen en schikken', s.heeft_montage],
+    ['render','Video','klaar om te delen', s.renders.length>0],
+  ];
+  const nu = s.stap;
+  $('#stappen').innerHTML = lijst.map(([id,titel,uitleg,klaar],i)=>`
+    <div class="stap ${klaar?'klaar':''} ${id===nu?'nu':''}">
+      <div class="bol">${klaar?'✓':i+1}</div>
+      <div><b>${titel}</b><span>${uitleg}</span></div>
+    </div>`).join('');
+}
+
+function badgesVoor(c){
+  if (c.scherpte === undefined) return '<span class="badge neutraal">nog niet bekeken</span>';
+  const b=[];
+  if (c.scherpte < 0.35) b.push('<span class="badge slecht">onscherp</span>');
+  else if (c.scherpte > 0.8) b.push('<span class="badge goed">scherp</span>');
+  if (c.lux !== null && c.lux !== undefined && c.lux < 120) b.push('<span class="badge let">donker</span>');
+  if (c.shake > 0.45) b.push('<span class="badge let">wiebelig</span>');
+  if (c.gezichten > 0) b.push(`<span class="badge neutraal">${c.gezichten} gezicht${c.gezichten>1?'en':''}</span>`);
+  if (c.verticaal) b.push('<span class="badge neutraal">staand</span>');
+  return b.join('') || '<span class="badge goed">in orde</span>';
+}
+
+function tekenBestanden(){
+  const s = S.status;
+  $('#kop-bestanden').textContent = `2 · Wat er in het project zit`;
+  $('#uitleg-bestanden').textContent = S.bronnen.length
+    ? (s.is_geanalyseerd
+        ? 'Klik een clip aan of uit om te bepalen of hij mee mag doen in de montage. De labels tonen wat de computer heeft gemeten.'
+        : 'Deze bestanden staan klaar. Na het analyseren zie je hier per clip of hij scherp, donker of wiebelig is.')
+    : 'Nog geen beelden. Voeg ze hierboven toe.';
+
+  // De miniatuurstrook bevat 24 beelden naast elkaar. Met een achtergrond van
+  // 2400% breed vult één beeld precies de tegel; daarna schuiven we naar het
+  // beeld op 40% van de clip - dat is meestal representatiever dan het eerste.
+  // De positie moet exact op een frame vallen. `background-position` telt in
+  // procenten van de overloop, dus frame k staat op k/(N-1) × 100 %. Een
+  // niet-heel getal geeft twee halve beelden naast elkaar.
+  const N = 24, k = Math.round(0.4 * (N - 1)), pos = (k / (N - 1) * 100).toFixed(3);
+  $('#cliplijst').innerHTML = S.bronnen.map(c=>{
+    const uit = S.uit.has(c.id || c.bestand);
+    const beeld = c.id
+      ? `background-image:url(/media/thumb/${c.id}.jpg?project=${encodeURIComponent(S.project)});`
+        + `background-size:${N*100}% 100%;background-position:${pos}% center`
+      : '';
+    return `<div class="tegel ${uit?'uit':'aan'}" data-c="${c.id||c.bestand}">
+      <div class="beeld" style="${beeld}"><div class="vink">✓</div></div>
+      <div class="info"><b>${c.bestand}</b>
+        <span>${c.duur?duurTekst(c.duur):bytesTekst(c.bytes)}</span>
+        <div class="badges">${badgesVoor(c)}</div></div>
+    </div>`;
+  }).join('') || '';
+
+  $$('#cliplijst [data-c]').forEach(t => t.onclick = () => {
+    const id = t.dataset.c;
+    if (S.uit.has(id)) S.uit.delete(id); else S.uit.add(id);
+    t.classList.toggle('uit', S.uit.has(id));
+    t.classList.toggle('aan', !S.uit.has(id));
+  });
+
+  $('#muziekvak').innerHTML = S.muziek.length
+    ? `<div class="voortgang"><svg width="20" height="20" viewBox="0 0 24 24" fill="none"
+         stroke="var(--accent)" stroke-width="1.8"><path d="M9 18V5l10-2v13"/><circle cx="6" cy="18" r="3"/>
+         <circle cx="16" cy="16" r="3"/></svg>
+       <div style="flex:1"><b>${S.muziek[0].bestand}</b>
+       <div style="color:var(--tekst-3);font-size:13px">${bytesTekst(S.muziek[0].bytes)} · bepaalt het ritme van de montage</div></div></div>`
+    : `<div class="voortgang" style="border-color:var(--waarschuwing)">
+         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--waarschuwing)"
+           stroke-width="1.8"><circle cx="12" cy="12" r="9"/><path d="M12 8v5M12 16h.01"/></svg>
+         <div><b>Nog geen muziek</b><div style="color:var(--tekst-3);font-size:13px">
+         Voeg één MP3 of WAV toe. Daar worden de snedes op gelegd.</div></div></div>`;
+}
+
+function tekenActie(){
+  const s = S.status;
+  const knop = $('#btn-actie');
+  const bezig = !!s.bezig;
+  $('#voortgangvak').classList.toggle('verborgen', !bezig);
+  if (bezig){
+    const t = s.bezig;
+    $('#voortgang-tekst').textContent = t.startsWith('FOUT') ? t : t;
+    const m = t.match(/\[(\d+)\/(\d+)\]/);
+    $('#voortgang-balk').style.width = m ? (m[1]/m[2]*100)+'%' : '40%';
+  }
+
+  $('#btn-opnieuw').classList.toggle('verborgen', !s.is_geanalyseerd || bezig);
+
+  if (s.aantal_clips === 0){
+    $('#kop-start').textContent = '3 · Analyseren';
+    $('#uitleg-start').textContent = 'Voeg eerst beelden toe.';
+    knop.textContent = 'Analyseren'; knop.disabled = true; return;
+  }
+  if (bezig){
+    $('#kop-start').textContent = '3 · Bezig…';
+    $('#uitleg-start').textContent = 'Dit duurt ongeveer een halve minuut per minuut ruw materiaal. Je kunt dit venster open laten staan.';
+    knop.textContent = 'Even geduld…'; knop.disabled = true; return;
+  }
+  if (!s.is_geanalyseerd){
+    $('#kop-start').textContent = '3 · Analyseren';
+    $('#uitleg-start').textContent = 'De computer maakt kleine werkkopieën, meet scherpte, licht en beweging, '
+      + 'leest de camera-informatie uit en bepaalt het tempo van de muziek. Er gaat niets naar buiten.';
+    knop.textContent = 'Analyseer mijn beelden'; knop.disabled = false; return;
+  }
+  $('#kop-start').textContent = '3 · Monteren';
+  $('#uitleg-start').textContent = 'Alles is bekeken. In de editor kies je een stijl, sleep je shots '
+    + 'en zie je per shot waarom hij gekozen is.';
+  knop.textContent = s.heeft_montage ? 'Open de editor' : 'Maak een montage';
+  knop.disabled = false;
+}
+
+/* ================= acties ================= */
+async function verwerk(opnieuw){
+  try{
+    await api('/api/verwerk?project='+encodeURIComponent(S.project),
+      {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({opnieuw})});
+    S.status.bezig = 'Starten…'; tekenActie();
+    toast('Analyse gestart.');
+  }catch(e){ toast('Mislukt: '+e.message, true); }
+}
+
+function naarEditor(){
+  const uit = [...S.uit].join(',');
+  location.href = '/studio?project='+encodeURIComponent(S.project)+(uit?'&uit='+encodeURIComponent(uit):'');
+}
+
+async function stuurBestanden(lijst){
+  const totaal = lijst.length;
+  let klaar = 0, mislukt = 0;
+  $('#voortgangvak').classList.remove('verborgen');
+  for (const f of lijst){
+    $('#voortgang-tekst').textContent = `${f.name} versturen… (${klaar+1} van ${totaal})`;
+    $('#voortgang-balk').style.width = (klaar/totaal*100)+'%';
+    try{
+      await fetch('/api/upload?project='+encodeURIComponent(S.project), {
+        method:'POST', headers:{'X-Bestandsnaam': encodeURIComponent(f.name)}, body:f });
+    }catch{ mislukt++; }
+    klaar++;
+  }
+  $('#voortgangvak').classList.add('verborgen');
+  await ververs();
+  toast(mislukt ? `${klaar-mislukt} toegevoegd, ${mislukt} mislukt.` : `${klaar} bestand${klaar>1?'en':''} toegevoegd.`);
+}
+
+function startPollen(){
+  clearInterval(S.pollen);
+  S.pollen = setInterval(async ()=>{
+    if (!S.project) return;
+    try{
+      const s = await api('/api/status?project='+encodeURIComponent(S.project));
+      const wasBezig = !!S.status?.bezig;
+      S.status = s;
+      tekenStappen(); tekenActie();
+      if (wasBezig && !s.bezig){ await ververs(); toast('Analyse klaar.'); }
+    }catch{}
+  }, 1400);
+}
+
+/* ================= binden ================= */
+$('#btn-actie').onclick = () => {
+  if (!S.status.is_geanalyseerd) verwerk(false); else naarEditor();
+};
+$('#btn-opnieuw').onclick = () => verwerk(true);
+$('#btn-terug').onclick = () => {
+  clearInterval(S.pollen); S.project=null;
+  history.replaceState({},'','/');
+  toonScherm('projecten');
+  toonProjecten();
+};
+$('#btn-zelf').onclick = () => { toonScherm('projecten'); toonProjecten(); };
+$('#btn-naar-keuze').onclick = () => toonScherm('keuze');
+$('#btn-vernieuw').onclick = () => ververs().then(()=>toast('Bijgewerkt.'));
+$('#btn-openmap').onclick = async () => {
+  try{ await api('/api/openmap?project='+encodeURIComponent(S.project),
+    {method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});
+    toast('Map geopend. Klik daarna op Vernieuwen.'); }
+  catch(e){ toast('Kon de map niet openen: '+e.message, true); }
+};
+
+const zone = $('#sleepzone'), kiezer = $('#bestandkiezer');
+zone.onclick = () => kiezer.click();
+kiezer.onchange = () => { if (kiezer.files.length) stuurBestanden([...kiezer.files]); kiezer.value=''; };
+['dragenter','dragover'].forEach(ev => zone.addEventListener(ev, e => {
+  e.preventDefault(); zone.classList.add('over'); }));
+['dragleave','drop'].forEach(ev => zone.addEventListener(ev, e => {
+  e.preventDefault(); zone.classList.remove('over'); }));
+zone.addEventListener('drop', e => {
+  const f=[...(e.dataTransfer?.files||[])]; if (f.length) stuurBestanden(f);
+});
+window.addEventListener('dragover', e => e.preventDefault());
+window.addEventListener('drop', e => e.preventDefault());
+// Browserzoom blokkeren: anders valt de interface buiten beeld.
+window.addEventListener('wheel', e => { if (e.ctrlKey||e.metaKey) e.preventDefault(); }, {passive:false});
+window.addEventListener('keydown', e => {
+  if ((e.metaKey||e.ctrlKey) && ['+','-','=','0'].includes(e.key)) e.preventDefault();
+});
+
+/* ================= starten ================= */
+(async () => {
+  await toonProjecten();
+  const q = new URLSearchParams(location.search).get('project');
+  // Kom je binnen met een project in de link, dan sla je de keuze over —
+  // dan wist je al waar je heen wilde.
+  if (q && S.projecten.some(p=>p.naam===q)) openProject(q);
+  else toonScherm('keuze');
+})();
+</script>
+</body>
+</html>

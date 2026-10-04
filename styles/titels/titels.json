@@ -1,0 +1,122 @@
+{
+  "_": [
+    "De twintig titelstijlen. Eén bron voor de engine (titelstijl.py), de",
+    "compositie (brands/sjablonen/titel20.html) en de interface — die krijgt",
+    "deze lijst via project.stijlen. Overgenomen uit PLAN-v2.md §4.2 en",
+    "ontwerp/beatcut2/Main.dc.html (tab 'Titels · 20').",
+    "",
+    "`grootte` en `subgrootte` zijn pixels op een canvas van 405 px hoog — dat",
+    "is de maat waarop het ontwerp getekend is. De compositie schaalt ze met de",
+    "korte zijde van het echte canvas, en krimpt daarna nog als de tekst niet",
+    "past. Zo valt een lange plaatsnaam ook in 9:16 niet buiten beeld.",
+    "",
+    "`modus` zegt welk stuk van de titelbron deze stijl laat zien:",
+    "  heel    de hele titel, met ondertekst",
+    "  eerste  alleen het eerste woord (displaytype wordt anders onleesbaar)",
+    "  getal   de hoogte uit de GPS-data ('700 m')",
+    "  datum   de opnamedatum",
+    "  stapel  de titel over meerdere regels",
+    "`h`/`v` zijn de plek in het kader (justify/align), `uitlijning` de",
+    "tekstuitlijning binnen het blok."
+  ],
+  "titels": [
+    {"id": "onderbalk", "naam": "Onderbalk", "animatie": "balk schuift uit, tekst glijdt op",
+     "font": "'DM Sans', sans-serif", "grootte": 30, "gewicht": 600, "modus": "heel",
+     "h": "flex-start", "v": "flex-end", "balk": true, "sub": true,
+     "subfont": "'DM Sans', sans-serif", "subgrootte": 14},
+
+    {"id": "slam", "naam": "Slam", "animatie": "woorden knallen in op de beat",
+     "font": "'Anton', sans-serif", "grootte": 76, "gewicht": 400, "modus": "eerste",
+     "transform": "uppercase", "spatiering": "0.01em", "regelhoogte": 0.95,
+     "h": "center", "v": "center", "uitlijning": "center"},
+
+    {"id": "letters", "naam": "Letter voor letter", "animatie": "letters rollen gespreid omhoog",
+     "font": "'Montserrat', sans-serif", "grootte": 50, "gewicht": 800, "modus": "eerste",
+     "spatiering": "-0.02em", "h": "flex-start", "v": "flex-end"},
+
+    {"id": "masker", "naam": "Maskerwipe", "animatie": "blok veegt open",
+     "font": "'Archivo Black', sans-serif", "grootte": 38, "gewicht": 400, "modus": "eerste",
+     "transform": "uppercase", "kleur": "#0B0C0F", "vlak": "#FFFFFF",
+     "padding": "0.16em 0.38em", "schaduw": "none", "h": "flex-start", "v": "flex-end"},
+
+    {"id": "coords", "naam": "Coördinaten", "animatie": "lijn trekt, cijfers tellen op",
+     "font": "'Space Grotesk', sans-serif", "grootte": 40, "gewicht": 600, "modus": "heel",
+     "h": "flex-start", "v": "flex-start", "sub": true, "lijn": true,
+     "subfont": "'JetBrains Mono', monospace", "subgrootte": 15},
+
+    {"id": "hand", "naam": "Handschrift", "animatie": "tekst schrijft zichzelf",
+     "font": "'Caveat', cursive", "grootte": 68, "gewicht": 600, "regelhoogte": 1,
+     "modus": "eerste", "h": "flex-start", "v": "flex-end"},
+
+    {"id": "redactie", "naam": "Redactioneel", "animatie": "letterafstand trekt zacht samen",
+     "font": "'Playfair Display', serif", "grootte": 54, "gewicht": 400, "cursief": "italic",
+     "modus": "eerste", "h": "center", "v": "center", "uitlijning": "center"},
+
+    {"id": "glitch", "naam": "Glitch RGB", "animatie": "kanalen schuiven, flikkert in",
+     "font": "'Rubik Glitch', sans-serif", "grootte": 50, "gewicht": 400,
+     "transform": "uppercase", "modus": "eerste",
+     "schaduw": "0.06em 0 rgba(255,42,109,0.85), -0.06em 0 rgba(5,217,232,0.85)",
+     "h": "center", "v": "center", "uitlijning": "center"},
+
+    {"id": "neon", "naam": "Neon", "animatie": "flikkert aan als een buis",
+     "font": "'Monoton', sans-serif", "grootte": 40, "gewicht": 400,
+     "transform": "uppercase", "modus": "eerste", "kleur": "#FFF0FB",
+     "schaduw": "0 0 0.12em #FF4FD8, 0 0 0.36em #FF4FD8, 0 0 0.72em #B517FF",
+     "h": "center", "v": "center", "uitlijning": "center"},
+
+    {"id": "karaoke", "naam": "Karaoke", "animatie": "woord voor woord oplichten",
+     "font": "'Poppins', sans-serif", "grootte": 30, "gewicht": 700,
+     "vlak": "rgba(0,0,0,0.55)", "padding": "0.26em 0.6em", "rond": "999px",
+     "schaduw": "none", "modus": "heel", "h": "center", "v": "flex-end", "uitlijning": "center"},
+
+    {"id": "teller", "naam": "Teller", "animatie": "cijfers rollen naar de hoogte",
+     "font": "'Oswald', sans-serif", "grootte": 96, "gewicht": 600, "regelhoogte": 0.9,
+     "modus": "getal", "transform": "uppercase", "h": "flex-start", "v": "flex-end",
+     "sub": true, "subfont": "'Oswald', sans-serif", "subgrootte": 16},
+
+    {"id": "pin", "naam": "Routepin", "animatie": "pin stuitert, route tekent",
+     "font": "'DM Sans', sans-serif", "grootte": 24, "gewicht": 700, "kleur": "#0B0C0F",
+     "vlak": "#FFFFFF", "padding": "0.33em 0.58em", "rond": "999px", "schaduw": "none",
+     "modus": "heel", "h": "center", "v": "center", "uitlijning": "center",
+     "sub": true, "lijn": true, "subfont": "'DM Sans', sans-serif", "subgrootte": 13},
+
+    {"id": "datum", "naam": "Datumstempel", "animatie": "typt als een camcorder",
+     "font": "'VT323', monospace", "grootte": 42, "gewicht": 400, "modus": "datum",
+     "kleur": "#FFA94D", "schaduw": "0 0 0.14em rgba(255,140,40,0.6)",
+     "h": "flex-end", "v": "flex-end", "uitlijning": "right"},
+
+    {"id": "decoder", "naam": "Decoder", "animatie": "letters ontcijferen zich",
+     "font": "'Space Mono', monospace", "grootte": 30, "gewicht": 700,
+     "transform": "uppercase", "spatiering": "0.08em", "modus": "eerste",
+     "h": "center", "v": "center", "uitlijning": "center"},
+
+    {"id": "omlijning", "naam": "Omlijning", "animatie": "contour, dan vult het",
+     "font": "'Syne', sans-serif", "grootte": 64, "gewicht": 800, "transform": "uppercase",
+     "regelhoogte": 0.95, "kleur": "transparent", "contour": "0.022em", "schaduw": "none",
+     "modus": "eerste", "h": "center", "v": "center", "uitlijning": "center"},
+
+    {"id": "gestapeld", "naam": "Gestapeld", "animatie": "regels schuiven tegen elkaar in",
+     "font": "'Bebas Neue', sans-serif", "grootte": 84, "gewicht": 400,
+     "transform": "uppercase", "regelhoogte": 0.88, "modus": "stapel",
+     "h": "flex-start", "v": "center"},
+
+    {"id": "markeer", "naam": "Markeerstift", "animatie": "markering veegt achter het woord",
+     "font": "'DM Sans', sans-serif", "grootte": 40, "gewicht": 700, "kleur": "#0B0C0F",
+     "vlak": "ACCENT", "padding": "0.05em 0.25em", "schaduw": "none", "modus": "eerste",
+     "h": "flex-start", "v": "flex-end"},
+
+    {"id": "gewicht", "naam": "Gewicht", "animatie": "letters worden dikker op de beat",
+     "font": "'Fraunces', serif", "grootte": 60, "gewicht": 900, "cursief": "italic",
+     "modus": "eerste", "h": "center", "v": "center", "uitlijning": "center"},
+
+    {"id": "hoofdstuk", "naam": "Hoofdstuk", "animatie": "vol beeld, langzame inzoom",
+     "font": "'DM Serif Display', serif", "grootte": 64, "gewicht": 400, "modus": "heel",
+     "h": "center", "v": "center", "uitlijning": "center", "sub": true, "boven": true,
+     "subfont": "'Geist', sans-serif", "subgrootte": 13},
+
+    {"id": "minimaal", "naam": "Minimaal", "animatie": "zacht in en uit, veel lucht",
+     "font": "'Geist', sans-serif", "grootte": 18, "gewicht": 500, "transform": "uppercase",
+     "spatiering": "0.32em", "modus": "eerste", "h": "center", "v": "flex-end",
+     "uitlijning": "center"}
+  ]
+}

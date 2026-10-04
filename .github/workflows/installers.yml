@@ -1,0 +1,118 @@
+# Installers bouwen voor macOS en Windows.
+#
+# Waarom via GitHub en niet gewoon lokaal: **een Windows-installer kun je niet
+# op een Mac maken.** PyInstaller vriest in voor het besturingssysteem waarop
+# hij draait, en Inno Setup is een Windows-programma. Elk platform moet dus
+# op zijn eigen machine gebouwd worden, en dat is precies wat de runners hier
+# doen.
+#
+# BUITEN GEBRUIK sinds 03-10-2026. Dit bouwt BeatCut 1 (de Studio in een
+# browsertabblad). De bouwstraat van BeatCut 2 is `beatcut2.yml`; die hangt aan
+# de tags. Deze workflow start daarom alleen nog met de hand, zodat een tag niet
+# twee keer drie runners aan het werk zet.
+#
+# Niet verwijderd: zolang BeatCut 1 nog in gebruik is bij Koen zelf, is dit de
+# enige manier om er een installer van te maken.
+
+name: Installers (BeatCut 1, buiten gebruik)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  bouw:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-14        # Apple silicon
+            naam: macos-arm64
+          - os: macos-15-intel  # Intel (macos-13 is door GitHub opgeheven)
+            naam: macos-x64
+          - os: windows-latest
+            naam: windows-x64
+
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          # Dezelfde versie als de ontwikkelomgeving. 3.13+ breekt numba en
+          # dat merk je pas als de analyse draait.
+          python-version: "3.12"
+
+      - name: Afhankelijkheden
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e .
+          pip install pyinstaller
+
+      - name: ffmpeg meeleveren
+        # Statische build naast de app. LGPL, dus meeleveren mag; zie
+        # installer/LEESMIJ.md voor de licentienotitie.
+        shell: bash
+        run: |
+          mkdir -p installer/uit/bin
+          if [ "${{ runner.os }}" = "Windows" ]; then
+            choco install ffmpeg-shared -y --no-progress || true
+          else
+            brew install ffmpeg || true
+          fi
+
+      - name: Engine invriezen
+        run: pyinstaller installer/beatcut.spec --noconfirm --distpath installer/uit --workpath installer/bouw
+
+      - name: Controleren dat de engine start
+        shell: bash
+        run: |
+          if [ "${{ runner.os }}" = "Windows" ]; then
+            ./installer/uit/beatcut-engine/beatcut-engine.exe versie
+          else
+            ./installer/uit/beatcut-engine/beatcut-engine versie
+          fi
+
+      - name: macOS-app en schijfkopie
+        if: runner.os == 'macOS'
+        run: python installer/maak_app.py --dmg
+
+      - name: Windows-installer
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          python installer/maak_app.py
+          # Inno Setup staat op de Windows-runners voorgeïnstalleerd.
+          & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" installer\beatcut.iss
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: beatcut-${{ matrix.naam }}
+          path: |
+            installer/uit/*.dmg
+            installer/uit/*.exe
+          if-no-files-found: warn
+
+  publiceren:
+    needs: bouw
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: uit
+      # Naar de ópenbare downloadrepo, niet naar deze. De broncode blijft
+      # privé; alleen de installers zijn zichtbaar. Dat moet ook wel: de app
+      # vraagt zonder in te loggen of er een nieuwe versie is, en op een
+      # privérepo geeft GitHub daar 404 op.
+      #
+      # Vereist een secret `RELEASES_TOKEN`: een fijnmazig token met alleen
+      # schrijfrechten op Koen-io/beatcut-releases.
+      - uses: softprops/action-gh-release@v2
+        with:
+          repository: Koen-io/beatcut-releases
+          token: ${{ secrets.RELEASES_TOKEN }}
+          files: uit/**/*
+          generate_release_notes: true

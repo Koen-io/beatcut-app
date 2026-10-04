@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="nl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=1920, height=1080">
+<script src="vendor/gsap.min.js"></script>
+<style>
+  *{margin:0;padding:0;box-sizing:border-box}
+  html,body{width:1920px;height:1080px;overflow:hidden;background:transparent}
+  body{font-family:Inter,-apple-system,"Segoe UI",system-ui,sans-serif}
+  /* Donkere sluier zodat de tekst leesbaar blijft over willekeurig beeld. */
+  #sluier{position:absolute;inset:0;background:radial-gradient(
+      ellipse at center, rgba(6,8,11,.62) 0%, rgba(6,8,11,.86) 72%)}
+  #midden{position:absolute;inset:0;display:flex;flex-direction:column;
+    align-items:center;justify-content:center;text-align:center;gap:18px}
+  #titel{font-size:96px;font-weight:800;letter-spacing:-.03em;line-height:1}
+  #onder{font-size:32px;font-weight:500;opacity:.8}
+  #streep{height:4px;width:0;border-radius:2px;margin-top:6px}
+</style>
+</head>
+<body>
+<div id="root"
+     data-composition-id="eindkaart"
+     data-start="0" data-duration="3.5"
+     data-width="1920" data-height="1080"
+     data-composition-variables='{
+       "titel":      {"type":"string", "default":"Bedankt voor het kijken"},
+       "onder":      {"type":"string", "default":""},
+       "kleur":      {"type":"string", "default":"#2dd4bf"},
+       "tekstkleur": {"type":"string", "default":"#ffffff"},
+       "duur":       {"type":"number", "default":3.5}
+     }'>
+  <div id="sluier" class="clip" data-start="0" data-duration="3.5" data-track-index="0"></div>
+  <div id="midden" class="clip" data-start="0" data-duration="3.5" data-track-index="1">
+    <div id="titel"></div>
+    <div id="onder"></div>
+    <div id="streep"></div>
+  </div>
+</div>
+
+<script>
+const v = (window.__hyperframes && window.__hyperframes.getVariables()) || {};
+document.getElementById('titel').textContent = v.titel || 'Bedankt voor het kijken';
+const onder = document.getElementById('onder');
+if (v.onder) onder.textContent = v.onder; else onder.style.display = 'none';
+document.getElementById('midden').style.color = v.tekstkleur || '#fff';
+document.getElementById('streep').style.background = v.kleur || '#2dd4bf';
+
+const duur = Math.max(1.5, Number(v.duur) || 3.5);
+['root','sluier','midden'].forEach(id =>
+  document.getElementById(id).setAttribute('data-duration', duur));
+
+window.__timelines = window.__timelines || {};
+const tl = gsap.timeline({paused:true});
+tl.from('#sluier', {opacity:0, duration:.8, ease:'power2.out'}, 0)
+  .from('#titel',  {opacity:0, y:26, scale:.97, duration:.8, ease:'power3.out'}, .25)
+  .from('#onder',  {opacity:0, y:16, duration:.6, ease:'power2.out'}, .5)
+  .to('#streep',   {width:140, duration:.7, ease:'power2.inOut'}, .6);
+window.__timelines['eindkaart'] = tl;
+</script>
+</body>
+</html>

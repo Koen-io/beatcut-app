@@ -1,0 +1,34 @@
+.venv/
+__pycache__/
+*.pyc
+.env
+vendor/
+# Eén uitzondering: GSAP hoort wél in de repo. Het is 72 kB, de licentie staat
+# meeleveren toe, en zonder dit bestand rendert een schone kloon (en elke
+# installer uit CI) de titels niet — de compositie kan zijn tijdlijn dan niet
+# laden en HyperFrames weigert de render. Gemeten 03-10-2026.
+!brands/sjablonen/vendor/
+node_modules/
+projecten/*/bronnen/
+projecten/*/proxies/
+projecten/*/renders/
+projecten/*/cache/
+# Muziek hoort niet in de repo: het is andermans werk en het is groot.
+projecten/*/muziek/
+*.mp4
+*.mov
+*.wav
+*.bin
+.DS_Store
+
+# Bouwresultaten van de installer: groot en altijd opnieuw te maken.
+installer/uit/
+installer/bouw/
+vendor/geonames/
+
+# Projecten zijn jouw video's, geen broncode. Ze horen niet in de repo.
+projecten/
+
+# Zelf gebouwde ffmpeg: bronnen en tussenresultaat (uitvoer staat in installer/uit/)
+installer/ffmpeg/bouw/
+compositor/target/

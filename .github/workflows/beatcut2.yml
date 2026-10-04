@@ -1,0 +1,363 @@
+# BeatCut 2 bouwen voor macOS (arm64 + x64) en Windows (x64).
+#
+# Waarom dit niet op één machine kan: PyInstaller vriest in voor het
+# besturingssysteem waarop hij zélf draait, en een NSIS-installer is een
+# Windows-programma. Elk platform moet dus op zijn eigen runner gebouwd worden.
+#
+# Draait bij een tag (`v0.3.1`) en met de hand via "Run workflow". De tag is
+# wat `release.sh` zet; publiceren naar Koen-io/beatcut-releases doet dat
+# script daarna zelf met Koens eigen gh-login, zodat er geen token in deze
+# repo hoeft te staan.
+#
+# Twee secrets zijn wél nodig, en alleen voor het ondertekenen van de update:
+#   TAURI_SIGNING_PRIVATE_KEY           de minisign-privésleutel
+#   TAURI_SIGNING_PRIVATE_KEY_PASSWORD  het wachtwoord daarvan
+# Zie installer/LEESMIJ.md voor de exacte gh-commando's. Zonder die twee faalt
+# `tauri build` omdat createUpdaterArtifacts aan staat — en dat is goed: een
+# release zonder handtekening werkt de bestaande installaties niet bij.
+
+name: BeatCut 2
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  # Windows-console is cp1252: een print met Δ of ë mag een test niet laten vallen.
+  PYTHONUTF8: "1"
+  # De Intel-runner liep op een pypi-time-out (03-10-2026); ruimer wachten.
+  UV_HTTP_TIMEOUT: "120"
+  # Windows krijgt een kant-en-klare LGPL-build van BtbN. Vastgepind op een
+  # autobuild-tag (die zijn onveranderlijk, "latest" is dat niet) en met een
+  # sha256 die hier op de Mac gemeten is. Een nieuwe versie zoek je op met
+  #   gh api repos/BtbN/FFmpeg-Builds/releases --paginate -q '.[].assets[].name'
+  FFMPEG_WIN_URL: https://github.com/BtbN/FFmpeg-Builds/releases/download/autobuild-2026-10-01-13-06/ffmpeg-n8.1.3-14-g330caae0c1-win64-lgpl-8.1.zip
+  FFMPEG_WIN_SOM: 84e4495b9883dbf3997435943d2d7057cc55a4c31973f7422f56b1b56974006d
+
+jobs:
+  bouw:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-14            # Apple silicon
+            naam: macos-arm64
+            doel: aarch64-apple-darwin
+            bundels: app,dmg
+          - os: macos-15-intel      # Intel; macos-13 bestaat niet meer
+            naam: macos-x64
+            doel: x86_64-apple-darwin
+            bundels: app,dmg
+          - os: windows-latest
+            naam: windows-x64
+            doel: x86_64-pc-windows-msvc
+            bundels: nsis
+
+    runs-on: ${{ matrix.os }}
+    env:
+      TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+      TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          # Dezelfde versie als de ontwikkelomgeving. 3.13+ breekt numba, en
+          # dat merk je pas als de analyse draait.
+          python-version: "3.12"
+
+      - uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.doel }}
+
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            app/src-tauri -> target
+            compositor -> target
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+
+      # ---------------------------------------------------------------- ffmpeg
+      # Eerst, want de tests slaan zichzelf over als er geen ffmpeg is. Zo
+      # draaien ze op precies de ffmpeg die de gebruiker straks krijgt.
+      - name: ffmpeg-versie bepalen
+        id: ffmpeg
+        shell: bash
+        run: |
+          # Uit het bouwscript, zodat de cachesleutel niet achter kan lopen.
+          regel=$(grep -m1 '^VERSIE=' installer/ffmpeg/bouw-mac.sh)
+          versie=${regel##*:-}
+          versie=${versie%\"*}
+          versie=${versie%\}}
+          [ -n "$versie" ] || { echo "::error::kon FFMPEG_VERSIE niet uit bouw-mac.sh halen"; exit 1; }
+          echo "versie=$versie" >> "$GITHUB_OUTPUT"
+
+      - name: ffmpeg uit de cache
+        id: ffmpeg-cache
+        uses: actions/cache@v4
+        with:
+          path: installer/uit/ffmpeg
+          # De sha256 van de Windows-zip zit in de sleutel: pin je een andere
+          # build, dan vervalt de cache van Windows en niet die van macOS.
+          key: ffmpeg-${{ matrix.naam }}-${{ steps.ffmpeg.outputs.versie }}-${{ env.FFMPEG_WIN_SOM }}
+
+      # Intel heeft nasm nodig voor de x86-assembly (anders weigert configure);
+      # arm64 gebruikt de ingebouwde assembler.
+      - name: nasm (macOS Intel)
+        if: runner.os == 'macOS' && runner.arch == 'X64' && steps.ffmpeg-cache.outputs.cache-hit != 'true'
+        run: command -v nasm || brew install nasm
+
+      - name: ffmpeg bouwen (macOS, LGPL uit de bron)
+        if: runner.os == 'macOS' && steps.ffmpeg-cache.outputs.cache-hit != 'true'
+        run: installer/ffmpeg/bouw-mac.sh
+
+      - name: ffmpeg uit de cache weer naar huidig/ (macOS)
+        if: runner.os == 'macOS' && steps.ffmpeg-cache.outputs.cache-hit == 'true'
+        shell: bash
+        run: installer/ffmpeg/bouw-mac.sh    # vindt de build, kopieert naar huidig/
+
+      - name: ffmpeg ophalen (Windows, BtbN LGPL)
+        if: runner.os == 'Windows' && steps.ffmpeg-cache.outputs.cache-hit != 'true'
+        shell: bash
+        run: |
+          mkdir -p installer/ffmpeg/bouw installer/uit/ffmpeg/x64
+          zip=installer/ffmpeg/bouw/ffmpeg-win64-lgpl.zip
+          curl -fL --retry 3 --max-time 900 -o "$zip" "$FFMPEG_WIN_URL"
+          echo "$FFMPEG_WIN_SOM  $zip" | sha256sum -c -
+          unzip -q -j "$zip" '*/bin/ffmpeg.exe' '*/bin/ffprobe.exe' -d installer/uit/ffmpeg/x64
+          unzip -q -j "$zip" '*/LICENSE.txt' -d installer/uit/ffmpeg/x64
+          rm -f "$zip"
+
+      - name: ffmpeg naar huidig/ en nakijken
+        shell: bash
+        run: |
+          arch=${{ matrix.naam }}
+          arch=${arch##*-}
+          mkdir -p installer/uit/ffmpeg/huidig
+          cp -f installer/uit/ffmpeg/"$arch"/* installer/uit/ffmpeg/huidig/
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            ff=installer/uit/ffmpeg/huidig/ffmpeg.exe
+          else
+            ff=installer/uit/ffmpeg/huidig/ffmpeg
+          fi
+          "$ff" -hide_banner -version | head -1
+          # LGPL bewijzen: een GPL-build zou BeatCut zelf onder de GPL trekken.
+          if "$ff" -hide_banner -buildconf | grep -qE -- '--enable-(gpl|nonfree)'; then
+            echo "::error::deze ffmpeg is geen LGPL-build"; exit 1
+          fi
+
+      # ------------------------------------------------------------ compositor
+      # De enige kleurweg (PLAN-v2 §4.4): look en afwerking draaien op de GPU,
+      # met dezelfde WGSL-shaders als de live speler. Moet vóór de tests staan
+      # — de gouden-frames-poort valt zonder binary terug op de ffmpeg-keten en
+      # meet dan iets anders — en vóór Tauri, dat hem als resource meeneemt.
+      - name: Compositor bouwen
+        shell: bash
+        run: |
+          cargo build --release \
+            --manifest-path compositor/Cargo.toml --target ${{ matrix.doel }}
+          exe=beatcut-compositor
+          if [ "$RUNNER_OS" = "Windows" ]; then exe="$exe.exe"; fi
+          mkdir -p installer/uit/compositor
+          cp -f "compositor/target/${{ matrix.doel }}/release/$exe" installer/uit/compositor/
+          # Zegt welke adapter hij pakt. Op een runner zonder GPU is dat
+          # 'software': traag, maar het rekent hetzelfde.
+          "installer/uit/compositor/$exe" --info
+
+      - name: Compositor-tests
+        run: >-
+          cargo test --release --manifest-path compositor/Cargo.toml
+          --target ${{ matrix.doel }}
+
+      # ---------------------------------------------------------------- engine
+      - name: Engine-afhankelijkheden
+        shell: bash
+        run: |
+          uv pip install --system -e ".[dev]"
+          uv pip install --system pyinstaller
+
+      - name: Tests
+        shell: bash
+        run: python -m pytest -q
+
+      # Plaatsnamen voor de titels (GeoNames, CC BY 4.0). Staat niet in git;
+      # zonder deze lijst vindt de app geen enkele titel.
+      - name: Plaatsenlijst ophalen
+        shell: bash
+        run: python -c "from cve import geo; geo.installeer()"
+
+      - name: Engine invriezen
+        shell: bash
+        run: |
+          pyinstaller installer/beatcut.spec --noconfirm \
+            --distpath installer/uit --workpath installer/bouw
+          exe=installer/uit/beatcut-engine/beatcut-engine
+          if [ "$RUNNER_OS" = "Windows" ]; then exe="$exe.exe"; fi
+          "$exe" versie
+
+      # ------------------------------------------------------------------- app
+      - name: npm
+        working-directory: app
+        # --include=dev: zonder dat mist een omgeving met NODE_ENV=production
+        # tsc, vite en de tauri-cli, en dat meldt npm niet.
+        run: npm ci --include=dev
+
+      - name: Tauri bouwen
+        working-directory: app
+        run: npm run tauri -- build --target ${{ matrix.doel }} --bundles ${{ matrix.bundels }}
+
+      # Bewijs dat de gebouwde app zijn eigen engine en ffmpeg vindt, zonder
+      # terugval op de broncode naast de repo.
+      - name: Zelftest van de gebouwde app
+        if: runner.os == 'macOS'
+        env:
+          BEATCUT_GEEN_DEV: "1"
+        run: |
+          app="app/src-tauri/target/${{ matrix.doel }}/release/bundle/macos/BeatCut.app"
+          "$app/Contents/MacOS/beatcut" --zelftest
+
+      - name: Zelftest van de gebouwde app (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        env:
+          BEATCUT_GEEN_DEV: "1"
+        run: |
+          # Het losse .exe uit target/ staat naast zijn resources; dat is waar
+          # engine.rs ze ook in de installatie zoekt.
+          & "app/src-tauri/target/${{ matrix.doel }}/release/beatcut.exe" --zelftest
+
+      # ------------------------------------------------------------- artefacten
+      - name: Bestanden verzamelen en controlegetallen
+        id: pak
+        shell: bash
+        run: |
+          uit=uit
+          mkdir -p "$uit"
+          bundel="app/src-tauri/target/${{ matrix.doel }}/release/bundle"
+          versie=$(node -p "require('./app/src-tauri/tauri.conf.json').version")
+          arch=${{ matrix.naam }}
+          arch=${arch##*-}
+
+          if [ "$RUNNER_OS" = "macOS" ]; then
+            cp "$bundel"/dmg/*.dmg "$uit/BeatCut-$versie-$arch.dmg"
+            # De updaterbundel heet op elke Mac hetzelfde (BeatCut.app.tar.gz);
+            # in één release zouden arm64 en x64 elkaar overschrijven.
+            cp "$bundel"/macos/BeatCut.app.tar.gz     "$uit/BeatCut-$versie-$arch.app.tar.gz"
+            cp "$bundel"/macos/BeatCut.app.tar.gz.sig "$uit/BeatCut-$versie-$arch.app.tar.gz.sig"
+            echo "update_bestand=BeatCut-$versie-$arch.app.tar.gz" >> "$GITHUB_OUTPUT"
+          else
+            setup=$(ls "$bundel"/nsis/*-setup.exe)
+            cp "$setup"       "$uit/BeatCut-setup-$versie-$arch.exe"
+            cp "$setup.sig"   "$uit/BeatCut-setup-$versie-$arch.exe.sig"
+            echo "update_bestand=BeatCut-setup-$versie-$arch.exe" >> "$GITHUB_OUTPUT"
+          fi
+
+          # macOS-runners hebben geen sha256sum, wel shasum; Windows (Git Bash) beide.
+          som() { if command -v sha256sum >/dev/null; then sha256sum "$@"; else shasum -a 256 "$@"; fi; }
+          ( cd "$uit" && som ./* > SHA256SUMS && cat SHA256SUMS )
+          echo "versie=$versie" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: beatcut-${{ matrix.naam }}
+          path: uit/*
+          retention-days: 1          # VERPLICHT — zie ~/Code/WERKAFSPRAKEN.md §3
+          if-no-files-found: error
+
+      # Apart en piepklein, zodat de job 'latest' niet drie keer een dmg van
+      # 200 MB hoeft te downloaden om bij een handtekening te komen.
+      - name: Handtekening apart bewaren
+        shell: bash
+        run: |
+          mkdir -p sig
+          cp "uit/${{ steps.pak.outputs.update_bestand }}.sig" sig/
+          echo "${{ steps.pak.outputs.update_bestand }}" > sig/bestandsnaam.txt
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sig-${{ matrix.naam }}
+          path: sig/*
+          retention-days: 1
+          if-no-files-found: error
+
+  latest:
+    # latest.json wijst de updater naar de bestanden van déze release. Hij gaat
+    # er dus van uit dat release.sh ze onder dezelfde tag publiceert.
+    needs: bouw
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: sig-*
+          path: sig
+
+      - name: latest.json maken
+        shell: bash
+        env:
+          TAG: ${{ github.ref_type == 'tag' && github.ref_name || '' }}
+        run: |
+          versie=$(node -p "require('./app/src-tauri/tauri.conf.json').version")
+          tag="${TAG:-v$versie}"
+          basis="https://github.com/Koen-io/beatcut-releases/releases/download/$tag"
+
+          # Mapnaam van de artifact -> platformnaam die de updater verwacht.
+          declare -A platform=(
+            [sig-macos-arm64]=darwin-aarch64
+            [sig-macos-x64]=darwin-x86_64
+            [sig-windows-x64]=windows-x86_64
+          )
+
+          echo '{}' > latest.json
+          for map in "${!platform[@]}"; do
+            bestand=$(cat "sig/$map/bestandsnaam.txt")
+            handtekening=$(cat "sig/$map/$bestand.sig")
+            export P="${platform[$map]}" U="$basis/$bestand" S="$handtekening"
+            node -e '
+              const fs = require("fs");
+              const j = JSON.parse(fs.readFileSync("latest.json", "utf8"));
+              j.platforms = j.platforms || {};
+              j.platforms[process.env.P] = { url: process.env.U, signature: process.env.S };
+              fs.writeFileSync("latest.json", JSON.stringify(j, null, 2));
+            '
+          done
+
+          export V="$versie" T="$tag"
+          node -e '
+            const fs = require("fs");
+            const j = JSON.parse(fs.readFileSync("latest.json", "utf8"));
+            const uit = {
+              version: process.env.V,
+              notes: "Zie https://github.com/Koen-io/beatcut-releases/releases/tag/" + process.env.T,
+              pub_date: new Date().toISOString(),
+              platforms: j.platforms,
+            };
+            if (Object.keys(uit.platforms).length !== 3) {
+              console.error("::error::latest.json mist een platform: " + Object.keys(uit.platforms));
+              process.exit(1);
+            }
+            fs.writeFileSync("latest.json", JSON.stringify(uit, null, 2));
+          '
+          cat latest.json
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: latest-json
+          path: latest.json
+          retention-days: 1
+          if-no-files-found: error

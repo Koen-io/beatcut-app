@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="nl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=1920, height=1080">
+<!-- GSAP en de lettertypes staan lokaal. Een render mag nooit het internet
+     nodig hebben (CLAUDE.md regel 5); graphics.py kopieert `vendor/` en
+     `fonts/` mee naar de werkmap. -->
+<script src="vendor/gsap.min.js"></script>
+<link rel="stylesheet" href="fonts/titelfonts.css">
+<link rel="stylesheet" href="titel20.css">
+<style>
+  *{margin:0;padding:0;box-sizing:border-box}
+  html,body{width:1920px;height:1080px;overflow:hidden;background:transparent}
+</style>
+</head>
+<body>
+<div id="root"
+     data-composition-id="titel20"
+     data-start="0" data-duration="4"
+     data-width="1920" data-height="1080"
+     data-composition-variables='{
+       "titel":       {"type":"string", "default":"Titel"},
+       "eyebrow":     {"type":"string", "default":""},
+       "onder":       {"type":"string", "default":""},
+       "datum":       {"type":"string", "default":""},
+       "kleur":       {"type":"string", "default":"#2dd4bf"},
+       "tekstkleur":  {"type":"string", "default":"#ffffff"},
+       "titelstijl":  {"type":"string", "default":"onderbalk"},
+       "spec":        {"type":"string", "default":"{}"},
+       "nummer":      {"type":"number", "default":1},
+       "voorbeeld":   {"type":"number", "default":0},
+       "duur":        {"type":"number", "default":4}
+     }'>
+  <!-- Het wortelelement mag zelf geen class="clip" dragen; dan wordt het niet
+       als clip meegenomen en blijft het spoor leeg.
+
+       De id's zijn er voor `titel20.js` en de gsap-selectors; de vormgeving
+       hangt aan de classes ernaast. Dat is nodig omdat de voorvertoning twee
+       overlappende titels naast elkaar kan tonen (`app/src/speler/Titels.tsx`):
+       daar draagt maar één compositie tegelijk de id's, en zonder classes zou
+       de ander zijn opmaak kwijt zijn. -->
+  <div id="kader" class="kader clip" data-start="0" data-duration="4" data-track-index="1">
+    <div id="balk" class="balk"></div>
+    <div id="kaart" class="kaart">
+      <div class="boven" id="boven"></div>
+      <div class="eyebrow" id="eyebrow"></div>
+      <div class="titelrij"><span class="titel" id="titel"></span><span class="titel vul" id="vul"></span></div>
+      <div class="lijn" id="lijn"></div>
+      <div class="onder" id="onder"></div>
+    </div>
+  </div>
+</div>
+
+<script src="titel20.js"></script>
+</body>
+</html>

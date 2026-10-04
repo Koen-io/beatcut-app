@@ -1,0 +1,521 @@
+/* BeatCut 2 — huisstijl. Eén bron, overgenomen uit het prototype
+   (ontwerp/beatcut2). Componenten gebruiken alleen de tokens hieronder. */
+
+:root {
+  --bg: #0b0c0f;
+  --chrome: #0e1013;
+  --stage: #08090b;
+  --panel: #121419;
+  --raised: #15171c;
+  --raised-2: #1a1d23;
+  --line: #1e2128;
+  --line-2: #23262e;
+  --line-3: #2a2e37;
+  --text: #f3f4f6;
+  --text-2: #c9cdd4;
+  --muted: #a3a9b4;
+  --faint: #8b919c;
+  --accent: #c8f135;
+  --accent-soft: rgba(200, 241, 53, 0.1);
+  --on-accent: #0b0c0f;
+  --ok: #3ddc84;
+  --warn: #ff9a6b;
+  --radius: 12px;
+  --font: "Geist Variable", system-ui, sans-serif;
+  --mono: "Geist Mono Variable", ui-monospace, monospace;
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+html, body, #app { height: 100%; margin: 0; }
+body {
+  background: var(--bg);
+  color: var(--text);
+  font: 13px/1.4 var(--font);
+  -webkit-font-smoothing: antialiased;
+  user-select: none;
+  overflow: hidden;
+}
+button { font: inherit; color: inherit; cursor: pointer; }
+button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.mono { font-family: var(--mono); }
+
+.app { height: 100%; display: flex; flex-direction: column; }
+
+/* ---------- titelbalk ---------- */
+.titelbalk {
+  height: 52px; flex-shrink: 0; display: grid; grid-template-columns: 1fr auto 1fr;
+  align-items: center; padding: 0 16px; background: var(--chrome); border-bottom: 1px solid var(--line);
+}
+.titelbalk.mac { padding-left: 84px; } /* ruimte voor de verkeerslichten */
+.titelbalk .links { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.titelbalk .rechts { display: flex; align-items: center; justify-content: flex-end; gap: 10px; }
+.project-naam { display: flex; flex-direction: column; line-height: 1.15; }
+.project-naam b { font-weight: 600; }
+.project-naam span { font-size: 11px; color: var(--muted); }
+
+.stappen { display: flex; gap: 4px; padding: 4px; background: var(--raised); border: 1px solid var(--line-2); border-radius: 12px; }
+.stap { display: flex; align-items: center; gap: 8px; height: 34px; padding: 0 13px 0 8px; border: 0; border-radius: 9px; background: transparent; color: var(--muted); font-weight: 500; }
+.stap .nr { width: 20px; height: 20px; border-radius: 50%; display: grid; place-items: center; font-size: 11px; font-weight: 600; background: var(--line-2); color: var(--muted); }
+.stap[aria-current="step"] { background: var(--line-2); color: var(--text); }
+.stap[aria-current="step"] .nr { background: var(--accent); color: var(--on-accent); }
+.stap.klaar .nr { background: #2e3a1a; color: var(--accent); }
+
+.chip { display: flex; align-items: center; gap: 6px; height: 28px; padding: 0 10px; border-radius: 14px; border: 1px solid var(--line-3); background: var(--raised); font-size: 12px; color: var(--text-2); white-space: nowrap; flex-shrink: 0; }
+.dot { width: 7px; height: 7px; border-radius: 50%; background: var(--faint); }
+.dot.ok { background: var(--ok); }
+.dot.fout { background: var(--warn); }
+/* Bezig: hetzelfde bolletje, maar het pulseert zodat "42 %" niet het enige
+   teken van leven is. */
+.dot.bezig { background: var(--accent); animation: dot-puls 1.4s ease-in-out infinite; }
+@keyframes dot-puls { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
+@media (prefers-reduced-motion: reduce) { .dot.bezig { animation: none; } }
+.knop-primair { height: 34px; padding: 0 16px; border: 0; border-radius: 9px; background: var(--accent); color: var(--on-accent); font-weight: 600; }
+.knop { height: 34px; padding: 0 14px; border-radius: 9px; border: 1px solid var(--line-3); background: var(--raised); }
+
+/* ---------- media ---------- */
+.werkvlak { flex: 1; display: flex; min-height: 0; position: relative; }
+
+.zijbalk { width: 232px; flex-shrink: 0; padding: 20px 12px; background: var(--chrome); border-right: 1px solid var(--line); display: flex; flex-direction: column; gap: 22px; overflow-y: auto; }
+.zijbalk .groep { display: flex; flex-direction: column; gap: 2px; }
+.kop-klein { font-size: 11px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--faint); padding: 0 10px 8px; }
+.lijst-item { display: flex; gap: 8px; justify-content: space-between; align-items: center; padding: 8px 10px; border-radius: 8px; border: 0; background: transparent; text-align: left; color: var(--text-2); width: 100%; }
+.lijst-item:hover { background: var(--raised); }
+.lijst-item[aria-pressed="true"] { background: var(--raised-2); color: var(--text); font-weight: 500; }
+.lijst-item .naam { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lijst-item .aantal { font-size: 11px; color: var(--faint); flex-shrink: 0; }
+.lijst-leeg { padding: 8px 10px; color: var(--faint); }
+.nieuw-project { margin-top: 4px; width: 100%; height: 32px; padding: 0 10px; border-radius: 8px; border: 1px solid transparent; background: transparent; color: var(--accent); font: inherit; font-weight: 500; }
+.nieuw-project::placeholder { color: var(--accent); opacity: 1; }
+.nieuw-project:hover { background: var(--raised); }
+.nieuw-project:focus { border-color: var(--line-3); background: var(--raised-2); color: var(--text); }
+.nieuw-project:focus::placeholder { color: var(--faint); }
+.nieuw-project:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.voetnoot { margin-top: auto; padding: 14px; border-radius: 12px; background: var(--raised); border: 1px solid var(--line-2); display: flex; flex-direction: column; gap: 8px; }
+.voetnoot b { font-size: 12px; font-weight: 600; }
+.voetnoot span { font-size: 11px; color: var(--muted); line-height: 1.45; }
+
+.hoofd { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+.hoofd-kop { padding: 24px 28px 16px; display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; }
+.hoofd-kop h1 { margin: 0 0 6px; font-size: 26px; font-weight: 600; letter-spacing: -0.02em; }
+.hoofd-kop p { margin: 0; color: var(--muted); }
+.knop:disabled, .knop-primair:disabled, .knop-groot:disabled { opacity: 0.4; cursor: not-allowed; }
+
+.melding-fout { margin: 0 28px 12px; padding: 12px 14px; border-radius: 10px; border: 1px solid #4a2f24; background: #221713; display: grid; grid-template-columns: 1fr auto; gap: 4px 12px; align-items: center; }
+.melding-fout b { font-size: 12px; color: var(--warn); }
+/* Een waarschuwing is geen fout: de render is gelukt, er mist alleen iets.
+   Zelfde vorm, rustiger kleur — anders leest "geen titels" als "mislukt".
+   En een eigen flexkolom in plaats van het 2x2-raster van .melding-fout: hier
+   kunnen meerdere regels onder elkaar staan, en dan klopt dat raster niet. */
+.melding-fout.let-op {
+  display: flex; flex-direction: column; align-items: flex-start; gap: 8px;
+  border-color: var(--line-3); background: var(--raised);
+}
+.melding-fout.let-op b { color: var(--text); }
+.melding-fout.let-op span { font-size: 12px; color: var(--text-2); white-space: normal; }
+.knoppen-naast { display: flex; gap: 8px; }
+.kleine-noot.let-op { color: var(--text-2); }
+.melding-fout .mono { grid-column: 1; font-size: 11px; color: var(--text-2); user-select: text; word-break: break-word; white-space: pre-line; }
+.knop-klein { grid-row: 1 / span 2; height: 28px; padding: 0 12px; border-radius: 8px; border: 1px solid var(--line-3); background: var(--raised); }
+
+.clip-vlak { flex: 1; overflow-y: auto; padding: 4px 28px 24px; }
+.raster { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 18px 16px; }
+
+.kaart { display: flex; flex-direction: column; gap: 8px; padding: 0; border: 0; background: none; color: inherit; text-align: left; }
+.kaart .beeld { position: relative; width: 100%; aspect-ratio: 16 / 9; border-radius: 10px; overflow: hidden; background: var(--raised); box-shadow: inset 0 0 0 1px var(--line-2); opacity: 0.45; transition: opacity 120ms ease, box-shadow 120ms ease; }
+.kaart.aan .beeld { opacity: 1; box-shadow: 0 0 0 2px var(--accent); }
+.kaart .beeld img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.kaart .geen-beeld { width: 100%; height: 100%; background: linear-gradient(135deg, var(--raised-2), var(--panel)); }
+.kaart .duur { position: absolute; right: 6px; bottom: 6px; font-size: 11px; padding: 2px 6px; border-radius: 5px; background: rgba(0, 0, 0, 0.62); color: #fff; }
+.kaart .vink { position: absolute; left: 6px; top: 6px; width: 20px; height: 20px; border-radius: 50%; background: var(--accent); display: grid; place-items: center; }
+.kaart .regel { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 0 2px; }
+.kaart .regel .naam { font-size: 12px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.kaart.aan .regel .naam { color: var(--text-2); }
+.kaart .score { font-size: 11px; color: var(--faint); flex-shrink: 0; }
+.kaart .score.goed { color: var(--accent); }
+
+.kaart.skelet { pointer-events: none; }
+.kaart.skelet .beeld { opacity: 1; animation: pols 1.4s ease-in-out infinite; }
+.balkje { height: 9px; border-radius: 4px; background: var(--line-2); flex: 1; animation: pols 1.4s ease-in-out infinite; }
+.balkje.kort { flex: 0 0 26px; }
+@keyframes pols { 0%, 100% { opacity: 1; } 50% { opacity: 0.45; } }
+
+.sleepvlak { height: 100%; min-height: 280px; border: 1.5px dashed var(--line-3); border-radius: 16px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; text-align: center; color: var(--muted); padding: 32px; }
+.sleepvlak b { color: var(--text); font-size: 17px; }
+.sleepvlak > span { max-width: 420px; line-height: 1.5; }
+.sleepvlak .knop-primair { margin-top: 8px; }
+.sleep-icoon { color: var(--faint); }
+
+.onderbalk { height: 72px; flex-shrink: 0; border-top: 1px solid var(--line); background: var(--chrome); display: flex; align-items: center; justify-content: space-between; gap: 24px; padding: 0 28px; }
+.balk-tekst { display: flex; flex-direction: column; gap: 6px; width: 520px; max-width: 60%; }
+.balk-tekst .regel { display: flex; justify-content: space-between; gap: 12px; font-size: 12px; }
+.balk-tekst .stap-naam { font-weight: 500; flex-shrink: 0; }
+.balk-tekst .detail { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.balk { height: 4px; border-radius: 2px; background: var(--line-2); overflow: hidden; }
+.balk .vulling { width: 100%; height: 100%; background: var(--accent); border-radius: 2px;
+  transform: scaleX(var(--deel, 0)); transform-origin: left; transition: transform 240ms ease; }
+/* Geen teller bekend (kopiëren, opstarten): laat zien dat er iets gebeurt. */
+.balk .vulling.pendelt { transform: none; animation: pendel 1.3s ease-in-out infinite; }
+@keyframes pendel { 0% { transform: translateX(-100%); } 100% { transform: translateX(100%); } }
+.knop-groot { height: 42px; padding: 0 22px; border: 0; border-radius: 11px; background: var(--accent); color: var(--on-accent); font-weight: 600; font-size: 14px; flex-shrink: 0; }
+
+/* Sleepmarkering over het hele werkvlak — het doel is nooit één klein vlak. */
+.sleep-markering { position: absolute; inset: 0; z-index: 5; display: grid; place-items: center; background: rgba(11, 12, 15, 0.72); backdrop-filter: blur(2px); box-shadow: inset 0 0 0 2px var(--accent); }
+.sleep-markering > div { display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 28px 40px; border-radius: 16px; background: var(--raised-2); border: 1px solid var(--line-3); box-shadow: 0 18px 50px rgba(0, 0, 0, 0.5); }
+.sleep-markering b { font-size: 17px; }
+.sleep-markering span { color: var(--muted); }
+.sleep-markering .sleep-icoon { color: var(--accent); }
+
+@media (prefers-reduced-motion: reduce) {
+  .kaart .beeld, .balk .vulling { transition: none; }
+  .kaart.skelet .beeld, .balkje, .balk .vulling.pendelt { animation: none; }
+}
+
+.binnenkort { flex: 1; display: grid; place-items: center; background: var(--stage); color: var(--muted); text-align: center; }
+.binnenkort b { display: block; color: var(--text); font-size: 18px; margin-bottom: 6px; }
+
+/* ---------- engine-paneel ---------- */
+.paneel { position: absolute; right: 16px; top: 60px; width: 420px; max-height: 70vh; overflow: auto; padding: 16px; border-radius: 14px; background: var(--raised-2); border: 1px solid var(--line-3); box-shadow: 0 18px 50px rgba(0, 0, 0, 0.5); }
+.paneel h2 { margin: 0 0 10px; font-size: 14px; }
+.check { display: grid; grid-template-columns: 18px 120px 1fr; gap: 8px; padding: 5px 0; font-size: 12px; border-bottom: 1px solid var(--line); }
+.paneel-uitleg { margin: 0 0 10px; font-size: 12px; color: var(--text-2); }
+.paneel-knoppen { display: flex; gap: 8px; justify-content: flex-end; margin-top: 12px; }
+.check .detail { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* ---------- stap 2 (Stijl) en stap 5 (Exporteren) ---------- */
+.zijbalk.breed { width: 380px; padding: 20px 16px; }
+.zijbalk.rechts { width: 300px; border-right: 0; border-left: 1px solid var(--line); padding: 22px 18px; }
+.zijbalk.export { width: 420px; border-right: 0; border-left: 1px solid var(--line); padding: 22px 20px; }
+/* De rechterkolommen zetten koppen boven kaarten, niet boven een lijst:
+   de inspringing van .kop-klein hoort daar niet en de groepen hebben lucht
+   nodig tussen kop, keuze en toelichting. */
+.zijbalk.rechts .groep, .zijbalk.export .groep { gap: 10px; }
+.zijbalk.rechts .kop-klein, .zijbalk.export .kop-klein { padding: 0; }
+.stap-titel { margin: 0 0 6px; font-size: 20px; font-weight: 600; letter-spacing: -0.02em; }
+.stap-uitleg { margin: 0; color: var(--muted); line-height: 1.5; }
+.kleine-noot { font-size: 11px; color: var(--muted); line-height: 1.45; }
+.noot-waarschuwing { font-size: 11px; color: var(--warn); line-height: 1.45; }
+
+/* het middenvlak van beide stappen */
+.podium { flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 18px; padding: 24px 28px; background: var(--stage); overflow-y: auto; }
+.podium .melding-fout { margin: 0; width: 100%; max-width: 640px; }
+
+.samenvatting { width: 100%; max-width: 560px; padding: 24px; border-radius: 16px; background: var(--panel); border: 1px solid var(--line-2); display: flex; flex-direction: column; gap: 14px; }
+.samenvatting h2 { margin: 0; font-size: 24px; font-weight: 600; letter-spacing: -0.02em; }
+.samenvatting-rijen { display: flex; flex-direction: column; border-radius: 12px; border: 1px solid var(--line-2); overflow: hidden; }
+.samenvatting-rijen > div { display: flex; justify-content: space-between; gap: 16px; padding: 11px 14px; background: var(--raised); border-bottom: 1px solid var(--line); }
+.samenvatting-rijen > div:last-child { border-bottom: 0; }
+.samenvatting-rijen span { color: var(--muted); flex-shrink: 0; }
+.samenvatting-rijen b { font-weight: 500; text-align: right; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* stijlkaarten */
+.stijl-lijst { display: flex; flex-direction: column; gap: 8px; overflow-y: auto; }
+.stijl-kaart { display: flex; flex-direction: column; gap: 4px; padding: 12px 14px; border-radius: 12px; border: 0; background: var(--raised); color: inherit; text-align: left; }
+.stijl-kaart:hover { background: var(--raised-2); }
+.stijl-kaart[aria-pressed="true"] { background: var(--raised-2); box-shadow: 0 0 0 2px var(--accent); }
+.stijl-kaart .regel { display: flex; align-items: center; gap: 8px; justify-content: space-between; }
+.stijl-kaart .omschrijving { font-size: 12px; color: var(--muted); line-height: 1.45; }
+/* Montagestijl-kaart: energiebalkjes links, naam + snijritme + regels rechts.
+   Ontwerp: ontwerp/beatcut2/Main.dc.html, scherm STIJL, tab Montage. */
+.stijl-kaart.met-energie { display: grid; grid-template-columns: 40px minmax(0, 1fr); gap: 12px; align-items: center; }
+.montage-tekst { display: flex; flex-direction: column; gap: 3px; min-width: 0; align-items: flex-start; }
+.energie { display: flex; gap: 3px; align-items: flex-end; height: 26px; }
+.energie span { width: 5px; border-radius: 2px; background: var(--line-3); }
+.energie span.aan { background: var(--accent); }
+.snijritme { flex-shrink: 0; font-size: 11px; color: var(--muted); }
+
+.label-herkend { flex-shrink: 0; font-size: 10px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; padding: 2px 7px; border-radius: 10px; background: var(--accent-soft); color: var(--accent); }
+
+/* formaat, lengte, muziek */
+.vorm-raster { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.vorm-knop { display: flex; align-items: center; gap: 10px; height: 60px; padding: 0 10px; border-radius: 11px; border: 1px solid var(--line-3); background: var(--raised); text-align: left; }
+.vorm-knop[aria-pressed="true"] { border-color: var(--accent); background: var(--accent-soft); }
+.vorm-vak { width: 26px; display: grid; place-items: center; flex-shrink: 0; }
+.vorm-icoon { display: block; border: 1.5px solid var(--faint); border-radius: 3px; }
+.vorm-knop[aria-pressed="true"] .vorm-icoon { border-color: var(--accent); }
+.vorm-tekst { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.vorm-tekst b { font-weight: 600; }
+.vorm-tekst span { font-size: 11px; color: var(--muted); }
+
+.chip-rij { display: flex; flex-wrap: wrap; gap: 6px; }
+.chip-knop { height: 30px; padding: 0 12px; border-radius: 15px; font-size: 12px; border: 1px solid var(--line-3); background: var(--raised); color: var(--text-2); }
+.chip-knop[aria-pressed="true"] { border-color: var(--accent); background: var(--accent-soft); color: var(--accent); }
+
+.muziek-kaart { display: flex; gap: 10px; align-items: flex-start; padding: 12px 14px; border-radius: 12px; background: var(--raised); border: 1px solid var(--line-2); }
+.muziek-kaart .noot { flex-shrink: 0; margin-top: 1px; }
+.muziek-tekst { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.muziek-tekst b { font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.muziek-tekst > span { font-size: 11px; color: var(--muted); line-height: 1.45; }
+
+.afsluiter { margin-top: auto; display: flex; flex-direction: column; gap: 10px; }
+.knop-groot.vol { width: 100%; }
+.knop-rij { display: flex; gap: 8px; }
+.knop-rij .knop, .knop-wit { flex: 1; height: 36px; }
+.knop-wit { height: 36px; padding: 0 14px; border: 0; border-radius: 9px; background: var(--text); color: var(--on-accent); font-weight: 600; }
+.knop-wit:disabled { opacity: 0.4; cursor: not-allowed; }
+.knop-klein-rand { height: 30px; padding: 0 12px; border-radius: 8px; border: 1px solid var(--line-3); background: transparent; flex-shrink: 0; }
+
+/* exporteren: de speler, het formaat en het rapport */
+.video-vlak { width: 100%; display: flex; flex-direction: column; gap: 10px; align-items: center; }
+.speler { width: 100%; max-height: calc(100vh - 220px); border-radius: 14px; background: #000; box-shadow: 0 18px 50px rgba(0, 0, 0, 0.5); }
+.video-regel { display: flex; justify-content: space-between; gap: 16px; width: 100%; font-size: 12px; color: var(--muted); }
+
+.formaat-regel { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 14px; border-radius: 12px; background: var(--panel); border: 1px solid var(--line-2); }
+.formaat-links { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.formaat-links b { font-weight: 600; }
+.formaat-links span { font-size: 11px; color: var(--muted); }
+
+.review-lijst { display: flex; flex-direction: column; gap: 7px; }
+.review-regel { display: flex; gap: 8px; align-items: flex-start; font-size: 12px; color: var(--text-2); line-height: 1.45; }
+.review-regel svg { flex-shrink: 0; margin-top: 3px; }
+.review-regel.let-op { color: var(--text-2); }
+.review-regel.mis { color: var(--warn); }
+
+/* exporteren: terwijl het loopt */
+.maakt { width: 100%; max-width: 520px; display: flex; flex-direction: column; gap: 16px; }
+.maakt h2 { margin: 0; font-size: 22px; font-weight: 600; letter-spacing: -0.02em; }
+.maak-stappen { display: flex; flex-direction: column; gap: 8px; }
+.maak-stap { display: flex; align-items: center; gap: 12px; padding: 12px 14px; border-radius: 12px; background: var(--raised); border: 1px solid var(--line-2); }
+.maak-stap .bol { width: 22px; height: 22px; flex-shrink: 0; border-radius: 50%; display: grid; place-items: center; font-size: 11px; font-weight: 600; background: var(--line-2); color: var(--muted); }
+.maak-stap.bezig { border-color: var(--line-3); background: var(--raised-2); }
+.maak-stap.bezig .bol { background: var(--accent); color: var(--on-accent); }
+.maak-stap.klaar .bol { background: #2e3a1a; color: var(--accent); }
+.maak-stap.wacht { opacity: 0.55; }
+.maak-tekst { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1; }
+.maak-tekst b { font-weight: 500; }
+.maak-tekst > span { font-size: 11px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.maak-stap .procent { font-size: 12px; color: var(--accent); flex-shrink: 0; }
+.balk.breed { height: 6px; border-radius: 3px; }
+
+/* ---------- stap 3 (Look) ---------- */
+.look-lijst { gap: 14px; }
+.look-raster { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; overflow-y: auto; padding-right: 2px; }
+.look-tegel { display: flex; flex-direction: column; gap: 4px; padding: 4px 4px 8px; border-radius: 11px; border: 0; background: var(--raised); color: inherit; text-align: left; }
+.look-tegel:hover { background: var(--raised-2); }
+.look-tegel[aria-pressed="true"] { background: var(--raised-2); box-shadow: 0 0 0 2px var(--accent); }
+.look-tegel .beeld { display: block; width: 100%; aspect-ratio: 16 / 9; border-radius: 8px; overflow: hidden; background: var(--stage); display: grid; place-items: center; }
+.look-tegel .beeld img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.look-tegel .naam { font-size: 12px; font-weight: 600; padding: 0 3px; }
+.look-tegel .sfeer { font-size: 10px; color: var(--muted); padding: 0 3px; }
+
+.look-voorbeeld { width: 100%; max-width: 860px; aspect-ratio: 16 / 9; border-radius: 14px; overflow: hidden; background: var(--panel); border: 1px solid var(--line-2); display: grid; place-items: center; transition: opacity 120ms ease; }
+.look-voorbeeld.bezig { opacity: 0.6; }
+.look-voorbeeld img { width: 100%; height: 100%; object-fit: contain; display: block; }
+
+.groep-schuif { display: flex; flex-direction: column; gap: 6px; }
+.schuif-kop { display: flex; justify-content: space-between; align-items: baseline; font-size: 12px; }
+.schuif-kop label { font-weight: 600; }
+.schuif-kop .mono { color: var(--muted); }
+.zijbalk input[type="range"] { width: 100%; accent-color: var(--accent); }
+
+.schakelaar { display: flex; justify-content: space-between; align-items: center; height: 40px; padding: 0 12px; border-radius: 10px; border: 1px solid var(--line-3); background: var(--raised); color: inherit; text-align: left; font-size: 13px; }
+.schakelaar .wip { width: 30px; height: 18px; border-radius: 9px; background: var(--line-3); position: relative; flex-shrink: 0; transition: background 120ms ease; }
+.schakelaar .wip::after { content: ""; position: absolute; top: 2px; left: 2px; width: 14px; height: 14px; border-radius: 50%; background: #fff; transition: transform 120ms ease; }
+.schakelaar[aria-checked="true"] .wip { background: var(--accent); }
+.schakelaar[aria-checked="true"] .wip::after { transform: translateX(12px); }
+
+/* ---------- Online/Offline en de update-melding ---------- */
+.schakelaar-online {
+  display: flex; align-items: center; gap: 8px;
+  height: 30px; padding: 0 10px 0 6px; border-radius: 15px;
+  border: 1px solid var(--line-3); background: var(--raised);
+  color: var(--text); font-size: 12px;
+}
+.schakelaar-online .spoor {
+  position: relative; width: 30px; height: 18px; border-radius: 9px;
+  background: var(--line-3); transition: background 0.15s;
+}
+.schakelaar-online[aria-checked="true"] .spoor { background: var(--accent); }
+/* Schuiven met transform, niet met left — zie commit f8bb404. */
+.schakelaar-online .knopje {
+  position: absolute; top: 2px; left: 2px; width: 14px; height: 14px;
+  border-radius: 50%; background: #fff; transition: transform 0.15s;
+}
+.schakelaar-online[aria-checked="true"] .knopje { transform: translateX(12px); }
+
+.melding-update {
+  position: fixed; left: 24px; bottom: 24px; width: 340px; z-index: 20;
+  display: flex; flex-direction: column; gap: 10px;
+  padding: 14px 16px; border-radius: 14px;
+  background: var(--raised); border: 1px solid var(--line-3);
+  box-shadow: 0 18px 50px rgb(0 0 0 / 0.5);
+}
+.melding-update .kop { display: flex; gap: 10px; align-items: flex-start; }
+.melding-update .teken {
+  flex: 0 0 28px; width: 28px; height: 28px; border-radius: 8px;
+  background: var(--line-2); display: flex; align-items: center; justify-content: center;
+}
+.melding-update .kop div { display: flex; flex-direction: column; gap: 3px; }
+.melding-update .kop span { color: var(--text-2); font-size: 12px; }
+.melding-update .knoppen { display: flex; gap: 8px; justify-content: flex-end; }
+.knop-licht {
+  height: 30px; padding: 0 12px; border: 0; border-radius: 8px;
+  background: var(--text); color: var(--bg); font-weight: 600;
+}
+.knop-licht:disabled { opacity: 0.4; cursor: not-allowed; }
+
+/* ---------- stap 4 (Bijwerken) ---------- */
+.bijwerken { flex: 1; display: flex; flex-direction: column; min-height: 0; }
+.bovenhelft { flex: 1; display: flex; min-height: 0; }
+.podium-shot { flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; padding: 20px 24px; background: var(--stage); }
+.podium-shot .speler { max-width: 100%; max-height: calc(100vh - 480px); min-height: 160px; }
+.podium-shot .geen-proxy { display: grid; place-items: center; width: 320px; aspect-ratio: 16 / 9; color: var(--muted); }
+.geen-proxy-beeld { width: 100%; max-width: 320px; border-radius: 8px; opacity: 0.45; }
+.speler-regel { display: flex; align-items: center; gap: 16px; font-size: 12px; color: var(--muted); }
+.speelknop { width: 32px; height: 32px; flex-shrink: 0; border-radius: 50%; border: 1px solid var(--line-3);
+  background: var(--raised-2); color: var(--text); display: grid; place-items: center; font-size: 11px; line-height: 1; }
+.speelknop[aria-pressed="true"] { border-color: var(--accent); color: var(--accent); }
+
+.zijbalk.inspecteur { width: 400px; border-right: 0; border-left: 1px solid var(--line); padding: 18px 20px; gap: 18px; }
+.shot-kop { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; }
+.shot-kop div { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.shot-kop b { font-size: 15px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.shot-kop span { font-size: 12px; color: var(--muted); }
+.shot-kop .score { font-size: 20px; color: var(--accent); flex-shrink: 0; }
+
+.filmstrip { position: relative; height: 96px; border-radius: 9px; overflow: hidden; background: var(--raised); border: 1px solid var(--line-2); }
+.filmstrip .strip { display: flex; height: 44px; }
+.filmstrip .frame { flex: 1; min-width: 0; background-color: var(--raised-2); background-repeat: no-repeat; }
+.filmstrip .scorelijn { display: block; width: 100%; height: 50px; }
+.filmstrip .venster { position: absolute; top: 0; bottom: 0; min-width: 6px; border: 2px solid var(--accent); border-radius: 6px; background: var(--accent-soft); }
+.strip-regel { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.strip-regel .knop-rij { flex: 0 0 auto; gap: 6px; }
+
+.keuzeknop { height: 40px; border-radius: 10px; border: 1px solid var(--line-3); background: var(--raised); font-weight: 500; }
+.keuzeknop[aria-pressed="true"] { border-color: var(--accent); background: var(--accent-soft); color: var(--accent); }
+
+.segment { display: grid; grid-auto-flow: column; gap: 4px; padding: 3px; border-radius: 10px; background: var(--raised); border: 1px solid var(--line-2); }
+.segment button { height: 30px; border: 0; border-radius: 7px; background: transparent; color: var(--muted); font-size: 12px; }
+.segment button[aria-pressed="true"] { background: var(--accent); color: var(--on-accent); }
+
+.signaal { display: grid; grid-template-columns: 90px minmax(0, 1fr) 36px; align-items: center; gap: 10px; font-size: 12px; color: var(--text-2); }
+.signaal .mono { color: var(--muted); text-align: right; }
+
+/* de tijdlijn onderaan */
+.tijdlijn { height: 286px; flex-shrink: 0; border-top: 1px solid var(--line); background: var(--chrome); display: flex; flex-direction: column; }
+.tijdlijn-kop { height: 42px; flex-shrink: 0; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 0 16px; border-bottom: 1px solid var(--raised-2); }
+.sporen { position: relative; flex: 1; display: flex; flex-direction: column; gap: 6px; padding: 8px 16px 12px; min-height: 0; }
+.spoor { display: flex; align-items: center; min-height: 0; }
+.spoor .label { width: 96px; flex-shrink: 0; font-size: 12px; color: var(--muted); display: flex; flex-direction: column; min-width: 0; padding-right: 8px; }
+.spoor .label .mono { font-size: 10px; color: var(--faint); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.maatbalk { position: relative; flex: 1; height: 18px; }
+.maatbalk .maat { position: absolute; top: 0; font-family: var(--mono); font-size: 10px; color: var(--faint); padding-left: 3px; border-left: 1px solid var(--line-3); line-height: 18px; }
+
+.beeldspoor { flex: 1; display: flex; gap: 2px; height: 76px; min-width: 0; }
+.beeldspoor .shot { position: relative; flex-basis: 0; min-width: 0; height: 76px; padding: 0; border: 0; border-radius: 5px; overflow: hidden; background: var(--raised); box-shadow: inset 0 0 0 1px var(--line-2); }
+.beeldspoor .shot[aria-pressed="true"] { box-shadow: 0 0 0 2px var(--accent); }
+.beeldspoor .shot img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.beeldspoor .shot .geen-beeld { display: block; width: 100%; height: 100%; background: linear-gradient(135deg, var(--raised-2), var(--panel)); }
+.beeldspoor .shot .speld { position: absolute; left: 4px; top: 4px; width: 8px; height: 8px; border-radius: 50%; background: #fff; box-shadow: 0 0 0 2px var(--bg); }
+.beeldspoor .shot .kruis { position: absolute; left: 3px; top: 2px; font-size: 10px; color: var(--warn); }
+.beeldspoor .shot .snelheid { position: absolute; right: 3px; bottom: 3px; font-size: 10px; padding: 1px 4px; border-radius: 4px; background: rgb(0 0 0 / 0.65); color: #fff; }
+
+.titelspoor { position: relative; flex: 1; height: 24px; }
+.titelspoor span { position: absolute; top: 0; height: 24px; min-width: 8px; border-radius: 6px; background: var(--line-2); border: 1px solid var(--line-3); font-size: 11px; color: var(--text-2); padding: 0 8px; display: flex; align-items: center; overflow: hidden; white-space: nowrap; }
+
+.golfspoor { flex: 1; height: 56px; border-radius: 6px; background: var(--raised); display: flex; align-items: center; gap: 1px; padding: 0 4px; overflow: hidden; }
+.golfspoor span { flex: 1; min-width: 1px; border-radius: 1px; background: var(--line-3); }
+
+.naaldvlak { position: absolute; left: 112px; right: 16px; top: 8px; bottom: 12px; pointer-events: none; }
+.naald { position: absolute; top: 0; bottom: 0; width: 2px; background: #fff; box-shadow: 0 0 0 1px rgb(0 0 0 / 0.5); }
+.naald::before { content: ""; position: absolute; top: -2px; left: -5px; width: 12px; height: 12px; border-radius: 3px; background: #fff; }
+
+/* ---------- muziek genereren (stap 2) ---------- */
+.muziek-kaart.kolom { flex-direction: column; gap: 8px; }
+.muziek-kaart.kolom b { font-weight: 600; }
+.muziek-kaart.kolom code { font-family: var(--mono, ui-monospace), monospace; font-size: 10px; color: var(--text-2); }
+.balk-tekst.breed { width: auto; max-width: none; }
+.variant { display: grid; grid-template-columns: 30px minmax(0, 1fr) auto; align-items: center; gap: 10px; padding: 8px 10px; border-radius: 10px; border: 1px solid var(--line-2); background: var(--raised); }
+.knop.klein { height: 28px; padding: 0 10px; font-size: 12px; }
+
+/* ---- Titelstijlen (stap 2, tabblad Titels) --------------------------------
+   Twee kolommen met een echt voorbeeldbeeld, zoals het ontwerp
+   (ontwerp/beatcut2/Main.dc.html, scherm STIJL, tab "Titels · 20"). Het
+   verloop achter het beeld zit hier en niet in de PNG: die heeft alfa, dus de
+   kaart kan de achtergrond leveren en het beeld blijft de titel alleen. */
+.titel-raster {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  overflow-y: auto;
+}
+.titel-melding { grid-column: 1 / -1; }
+
+.titel-kaart {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 6px 6px 10px;
+  border: 0;
+  border-radius: 12px;
+  background: var(--raised);
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.titel-kaart:hover { background: var(--raised-2); }
+.titel-kaart[aria-pressed="true"] {
+  background: var(--raised-2);
+  box-shadow: 0 0 0 2px var(--accent);
+}
+.titel-beeld {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  aspect-ratio: 16 / 9;
+  border-radius: 8px;
+  overflow: hidden;
+  background: linear-gradient(160deg, #2a3b4a, #12181f);
+}
+.titel-beeld img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.titel-wacht { font-size: 12px; color: var(--muted); }
+.titel-tekst {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 0 4px;
+  min-width: 0;
+}
+.titel-tekst .omschrijving { font-size: 11px; color: var(--muted); }
+
+/* ---------- de live speler (app/src/speler/) ---------- */
+.speler-doek { width: 100%; display: flex; flex-direction: column; gap: 10px; align-items: stretch; min-width: 0; }
+.speler-canvas { display: block; width: 100%; height: auto; aspect-ratio: var(--speler-vorm, 16 / 9); object-fit: contain; }
+/* Beeld plus titels. De titellaag ligt over het canvas en wordt als geheel
+   geschaald, zodat de compositie op canvasmaat (1920x1080) kan blijven rekenen
+   — net als in de render. */
+.speler-beeld { position: relative; width: 100%; min-width: 0; }
+.titel20-laag { position: absolute; inset: 0; overflow: hidden; pointer-events: none; }
+.titel20-doek { position: absolute; left: 0; top: 0; transform-origin: top left; }
+/* Eén vak per actieve titel: overlappende titels staan er allemaal, gestapeld
+   in de volgorde van edl.json. Zie app/src/speler/Titels.tsx. */
+.titel20-vak { position: absolute; inset: 0; }
+/* De reset die in titel20.html boven de compositie staat, hier alleen voor de
+   laag zelf: de rest van de interface heeft zijn eigen maatvoering. */
+.titel20-laag *, .titel20-laag *::before, .titel20-laag *::after {
+  margin: 0; padding: 0; box-sizing: border-box;
+}
+.speler-balk { display: flex; align-items: center; gap: 14px; font-size: 12px; color: var(--muted); }
+.speler-balk .mono { font-family: var(--mono); white-space: nowrap; }
+
+/* De scrubbalk. De streepjes zijn de snedes: zo zie je waar je in de montage
+   terechtkomt vóór je klikt. */
+.scrub { position: relative; flex: 1; min-width: 80px; height: 22px; cursor: pointer; touch-action: none; }
+.scrub-spoor { position: absolute; top: 9px; left: 0; right: 0; height: 4px; border-radius: 2px; background: var(--line-3); }
+.scrub-tot { position: absolute; top: 9px; left: 0; height: 4px; border-radius: 2px; background: var(--accent); }
+.scrub-snede { position: absolute; top: 4px; width: 1px; height: 14px; background: var(--faint); transform: translateX(-0.5px); }
+.scrub-knop { position: absolute; top: 5px; width: 12px; height: 12px; margin-left: -6px; border-radius: 50%;
+  background: var(--accent); box-shadow: 0 0 0 3px rgba(200, 241, 53, 0.18); pointer-events: none; }
+
+/* Licenties van derden in het engine-paneel: lang, dus eigen scroll. */
+.paneel .licenties {
+  margin-top: 10px;
+  max-height: 320px;
+  overflow: auto;
+  white-space: pre-wrap;
+  font-family: var(--mono, ui-monospace, monospace);
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--tekst-2, inherit);
+}

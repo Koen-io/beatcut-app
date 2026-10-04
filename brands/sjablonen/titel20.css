@@ -1,0 +1,83 @@
+/* ==================================================================
+   De twintig titelstijlen — vormgeving.
+
+   Wat hier staat is alleen wat per stijl niet uit `styles/titels/titels.json`
+   komt: de opbouw van het kader en de paar dingen die CSS beter doet dan een
+   stijlwaarde (de onderbalk-gradient, de markeerveeg, de contourletter).
+
+   Selectoren op class en niet op id: de voorvertoning kan twee overlappende
+   titels tegelijk tonen en dan draagt maar één compositie de id's. Die id's
+   blijven wel in de HTML staan — `titel20.js` en de gsap-selectors gebruiken ze.
+
+   Alle maten in `em`. `titel20.js` zet één font-size op `.kaart` die meeschaalt
+   met de korte zijde van het canvas en daarna nog krimpt als de tekst niet in
+   de veilige marge past. Zo is een staande video even leesbaar als een liggende.
+
+   Kleuren komen binnen als CSS-variabelen:
+     --accent   de accentkleur
+     --tekst    de tekstkleur
+================================================================== */
+
+.kader{
+  position:absolute; inset:0;
+  display:flex;                       /* h = horizontaal, v = verticaal */
+  padding:var(--marge-v) var(--marge-h);
+}
+
+.kaart{
+  position:relative; max-width:100%;
+  color:var(--tekst,#fff);
+  text-shadow:var(--schaduw);
+}
+
+/* De onderbalk loopt over de volle breedte en zit achter de tekst. */
+.balk{
+  position:absolute; left:0; right:0; bottom:0; height:38%;
+  background:linear-gradient(transparent, rgba(8,10,13,.92) 46%);
+  transform-origin:left bottom; display:none;
+}
+.kader.met-balk .balk{display:block}
+.kader.met-balk{align-items:flex-end}
+
+/* Alles buiten de titel staat rechtstreeks op het beeld: eigen kleur, eigen
+   schaduw. Erft het de kleur van de titel, dan zijn zwarte letters onder een
+   witte pil (Routepin) onzichtbaar. */
+.boven,.eyebrow,.onder{
+  color:var(--subtekst,#fff);
+  text-shadow:0 .03em .28em rgba(0,0,0,.85), 0 0 .8em rgba(0,0,0,.4);
+  text-transform:none;
+}
+.boven{font-weight:700;letter-spacing:.3em;text-transform:uppercase;
+  color:var(--accent,#2dd4bf);margin-bottom:.9em;display:none}
+.eyebrow{font-weight:800;letter-spacing:.24em;text-transform:uppercase;
+  color:var(--accent,#2dd4bf);margin-bottom:.5em;display:none}
+.onder{font-weight:500;opacity:.9;margin-top:.55em;display:none}
+.lijn{height:.05em;background:var(--accent,#2dd4bf);border-radius:.04em;
+  margin-top:.4em;transform-origin:left center;display:none}
+
+.titelrij{position:relative;display:inline-block;max-width:100%}
+.titel{
+  display:inline-block; white-space:pre-wrap;
+  font-size:1em; font-weight:inherit; line-height:inherit;
+  /* De markeerveeg: een vlak dat van 0 naar 100 % breed groeit, achter de
+     letters langs. Vandaar een achtergrond en niet een los element — zo
+     volgt hij de regelafbreking mee. */
+  background-image:linear-gradient(var(--vlak,transparent), var(--vlak,transparent));
+  background-repeat:no-repeat; background-size:100% 100%;
+  padding:var(--padding,0); border-radius:var(--rond,0);
+}
+
+/* De vulling voor 'Omlijning': dezelfde letters bovenop de contour, die van
+   doorzichtig naar vol gaan. Eén element met een kleurtween zou via donker
+   lopen, want transparant is rgba(0,0,0,0). */
+.vul{position:absolute;left:0;top:0;opacity:0;
+  -webkit-text-stroke:0 transparent;color:var(--lijnkleur,#fff);background:none}
+.kaart:not(.stijl-omlijning) .vul{display:none}
+
+.stijl-omlijning .titel{-webkit-text-stroke:var(--contour,.02em) var(--lijnkleur,#fff)}
+
+/* Handschrift schrijft zichzelf; het masker loopt mee met de tijdlijn. */
+.stijl-hand .titelrij{clip-path:inset(0 0 0 0)}
+
+.woord,.letter{display:inline-block}
+.regel{display:block}
