@@ -269,12 +269,48 @@ jobs:
           # engine.rs ze ook in de installatie zoekt.
           & "app/src-tauri/target/${{ matrix.doel }}/release/beatcut.exe" --zelftest
 
+      # ------------------------------------------------------------- artefacten
+      - name: Bestanden verzamelen en controlegetallen
+        id: pak
+        shell: bash
+        run: |
+          uit=uit
+          mkdir -p "$uit"
+          bundel="app/src-tauri/target/${{ matrix.doel }}/release/bundle"
+          versie=$(node -p "require('./app/src-tauri/tauri.conf.json').version")
+          arch=${{ matrix.naam }}
+          arch=${arch##*-}
+
+          # Op naam: de P-ALV-editie bouwt later in dezelfde bundle-map.
+          if [ "$RUNNER_OS" = "macOS" ]; then
+            cp "$bundel"/dmg/BeatCut_*.dmg "$uit/BeatCut-$versie-$arch.dmg"
+            # De updaterbundel heet op elke Mac hetzelfde (BeatCut.app.tar.gz);
+            # in één release zouden arm64 en x64 elkaar overschrijven.
+            cp "$bundel"/macos/BeatCut.app.tar.gz     "$uit/BeatCut-$versie-$arch.app.tar.gz"
+            cp "$bundel"/macos/BeatCut.app.tar.gz.sig "$uit/BeatCut-$versie-$arch.app.tar.gz.sig"
+            echo "update_bestand=BeatCut-$versie-$arch.app.tar.gz" >> "$GITHUB_OUTPUT"
+          else
+            setup=$(ls "$bundel"/nsis/BeatCut_*-setup.exe)
+            cp "$setup"       "$uit/BeatCut-setup-$versie-$arch.exe"
+            cp "$setup.sig"   "$uit/BeatCut-setup-$versie-$arch.exe.sig"
+            echo "update_bestand=BeatCut-setup-$versie-$arch.exe" >> "$GITHUB_OUTPUT"
+          fi
+
+          # macOS-runners hebben geen sha256sum, wel shasum; Windows (Git Bash) beide.
+          som() { if command -v sha256sum >/dev/null; then sha256sum "$@"; else shasum -a 256 "$@"; fi; }
+          ( cd "$uit" && som ./* > SHA256SUMS && cat SHA256SUMS )
+          echo "versie=$versie" >> "$GITHUB_OUTPUT"
+
       # ---------------------------------------------------------------- P-ALV
       # Tweede editie: dezelfde engine en dezelfde app, ander merk. Het
       # merkpakket komt uit de privé-releases-repo (release `merk`), zodat het
       # logo nooit in deze publieke repo staat. Zelfde target-map: de crate is
       # dezelfde, alleen de config (identifier, naam, iconen) en het ingebakken
       # token verschillen, en cargo bouwt daarop precies het nodige opnieuw.
+      #
+      # Pas NA het verzamelen van de BeatCut-bestanden: de dmg-bundler van
+      # Tauri maakt bundle/dmg/ leeg voor hij begint, en de eerste release
+      # (15-10-2026) strandde daarop met "BeatCut_*.dmg: No such file".
       - name: Merkpakket P-ALV ophalen
         id: palv
         if: env.PALV_RELEASES_TOKEN != ''
@@ -324,58 +360,32 @@ jobs:
         run: |
           & "app/src-tauri/target/${{ matrix.doel }}/release/beatcut.exe" --zelftest
 
-      # ------------------------------------------------------------- artefacten
-      - name: Bestanden verzamelen en controlegetallen
-        id: pak
+      - name: P-ALV-bestanden verzamelen en controlegetallen
+        id: pakpalv
+        if: steps.palv.outputs.aanwezig == 'ja'
         shell: bash
         run: |
-          uit=uit
-          mkdir -p "$uit"
+          uitp=uit-palv
+          mkdir -p "$uitp"
           bundel="app/src-tauri/target/${{ matrix.doel }}/release/bundle"
           versie=$(node -p "require('./app/src-tauri/tauri.conf.json').version")
           arch=${{ matrix.naam }}
           arch=${arch##*-}
-
-          # Op naam, niet met een kale *: sinds de P-ALV-editie staan er twee
-          # dmg's (of twee setup.exe's) in dezelfde bundle-map.
+          # Zonder spaties in de namen: die gaan in latest.json en in een URL.
+          naam="P-ALV-Movie-Maker"
           if [ "$RUNNER_OS" = "macOS" ]; then
-            cp "$bundel"/dmg/BeatCut_*.dmg "$uit/BeatCut-$versie-$arch.dmg"
-            # De updaterbundel heet op elke Mac hetzelfde (BeatCut.app.tar.gz);
-            # in één release zouden arm64 en x64 elkaar overschrijven.
-            cp "$bundel"/macos/BeatCut.app.tar.gz     "$uit/BeatCut-$versie-$arch.app.tar.gz"
-            cp "$bundel"/macos/BeatCut.app.tar.gz.sig "$uit/BeatCut-$versie-$arch.app.tar.gz.sig"
-            echo "update_bestand=BeatCut-$versie-$arch.app.tar.gz" >> "$GITHUB_OUTPUT"
+            cp "$bundel"/dmg/"P-ALV Movie Maker"_*.dmg          "$uitp/$naam-$versie-$arch.dmg"
+            cp "$bundel"/macos/"P-ALV Movie Maker.app.tar.gz"     "$uitp/$naam-$versie-$arch.app.tar.gz"
+            cp "$bundel"/macos/"P-ALV Movie Maker.app.tar.gz.sig" "$uitp/$naam-$versie-$arch.app.tar.gz.sig"
+            echo "palv_update_bestand=$naam-$versie-$arch.app.tar.gz" >> "$GITHUB_OUTPUT"
           else
-            setup=$(ls "$bundel"/nsis/BeatCut_*-setup.exe)
-            cp "$setup"       "$uit/BeatCut-setup-$versie-$arch.exe"
-            cp "$setup.sig"   "$uit/BeatCut-setup-$versie-$arch.exe.sig"
-            echo "update_bestand=BeatCut-setup-$versie-$arch.exe" >> "$GITHUB_OUTPUT"
+            setup=$(ls "$bundel"/nsis/"P-ALV Movie Maker"_*-setup.exe)
+            cp "$setup"     "$uitp/$naam-setup-$versie-$arch.exe"
+            cp "$setup.sig" "$uitp/$naam-setup-$versie-$arch.exe.sig"
+            echo "palv_update_bestand=$naam-setup-$versie-$arch.exe" >> "$GITHUB_OUTPUT"
           fi
-
-          # macOS-runners hebben geen sha256sum, wel shasum; Windows (Git Bash) beide.
           som() { if command -v sha256sum >/dev/null; then sha256sum "$@"; else shasum -a 256 "$@"; fi; }
-          ( cd "$uit" && som ./* > SHA256SUMS && cat SHA256SUMS )
-          echo "versie=$versie" >> "$GITHUB_OUTPUT"
-
-          # De P-ALV-editie, als die gebouwd is. Zonder spaties in de namen:
-          # die gaan in latest.json en in een URL.
-          if [ "${{ steps.palv.outputs.aanwezig }}" = "ja" ]; then
-            uitp=uit-palv
-            mkdir -p "$uitp"
-            naam="P-ALV-Movie-Maker"
-            if [ "$RUNNER_OS" = "macOS" ]; then
-              cp "$bundel"/dmg/"P-ALV Movie Maker"_*.dmg          "$uitp/$naam-$versie-$arch.dmg"
-              cp "$bundel"/macos/"P-ALV Movie Maker.app.tar.gz"     "$uitp/$naam-$versie-$arch.app.tar.gz"
-              cp "$bundel"/macos/"P-ALV Movie Maker.app.tar.gz.sig" "$uitp/$naam-$versie-$arch.app.tar.gz.sig"
-              echo "palv_update_bestand=$naam-$versie-$arch.app.tar.gz" >> "$GITHUB_OUTPUT"
-            else
-              setup=$(ls "$bundel"/nsis/"P-ALV Movie Maker"_*-setup.exe)
-              cp "$setup"     "$uitp/$naam-setup-$versie-$arch.exe"
-              cp "$setup.sig" "$uitp/$naam-setup-$versie-$arch.exe.sig"
-              echo "palv_update_bestand=$naam-setup-$versie-$arch.exe" >> "$GITHUB_OUTPUT"
-            fi
-            ( cd "$uitp" && som ./* > SHA256SUMS && cat SHA256SUMS )
-          fi
+          ( cd "$uitp" && som ./* > SHA256SUMS && cat SHA256SUMS )
 
       - uses: actions/upload-artifact@v4
         with:
@@ -414,8 +424,8 @@ jobs:
         shell: bash
         run: |
           mkdir -p palv-sig
-          cp "uit-palv/${{ steps.pak.outputs.palv_update_bestand }}.sig" palv-sig/
-          echo "${{ steps.pak.outputs.palv_update_bestand }}" > palv-sig/bestandsnaam.txt
+          cp "uit-palv/${{ steps.pakpalv.outputs.palv_update_bestand }}.sig" palv-sig/
+          echo "${{ steps.pakpalv.outputs.palv_update_bestand }}" > palv-sig/bestandsnaam.txt
 
       - name: P-ALV-handtekening
         if: steps.palv.outputs.aanwezig == 'ja'
