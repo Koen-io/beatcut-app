@@ -60,6 +60,10 @@ class ClipBeeld:
     hashes: list[int] = field(default_factory=list)
     # Dominante kleuren per meting als (h, s, v) in 0..1
     kleur: list[tuple[float, float, float]] = field(default_factory=list)
+    # Gemiddelde (r, g, b) per meting in 0..1 — de grondstof voor de
+    # kleurafstemming tussen clips (`kleurmatch.py`): grijze-wereldbalans en
+    # helderheid, los van de dominante tint hierboven.
+    balans: list[tuple[float, float, float]] = field(default_factory=list)
     # Aandachtspunt per meting: waar staat het onderwerp, 0..1 over breedte
     # en hoogte van het beeld. Gladgestreken, zodat een crop die dit volgt
     # niet schokt.
@@ -292,6 +296,10 @@ def analyseer_clip(proxy: Path, *, samples_per_sec: int = SAMPLES_PER_SEC) -> Cl
         uit.belichting.append(round(_belichtingsscore(grijs), 4))
         uit.hashes.append(dhash(grijs))
         uit.kleur.append(_dominante_kleur(klein))
+        gem_bgr = klein.reshape(-1, 3).mean(axis=0) / 255.0
+        uit.balans.append(
+            (round(float(gem_bgr[2]), 4), round(float(gem_bgr[1]), 4), round(float(gem_bgr[0]), 4))
+        )
 
         flow = None
         if vorige_klein is not None:

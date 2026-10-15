@@ -43,7 +43,7 @@ import threading
 import zipfile
 from pathlib import Path
 
-from . import paths
+from . import editie, paths
 from .muziekinstall import Gestopt, _controleer, _download, _mapgrootte, _meet_groei, _meld
 
 __all__ = [
@@ -115,6 +115,12 @@ GROOTTE: dict[str, int] = {
 #: archieven die onderweg tijdelijk op schijf staan.
 RUIMTE_NODIG = 1_200_000_000
 
+#: Hoeveel er daadwerkelijk binnenkomt — de som van `GROOTTE`. Dit is wat naast
+#: "0 MB van …" hoort te staan en níet `RUIMTE_NODIG`: dat laatste is wat er
+#: vrij moet zijn, en met dat getal als noemer komt de teller nooit boven een
+#: derde uit terwijl de installatie allang klaar is.
+DOWNLOAD_BYTES = sum(GROOTTE.values())
+
 #: Van-tot per stap, zodat de balk één keer van 0 naar 100 loopt.
 STAPPEN: dict[str, tuple[int, int]] = {
     "node": (0, 30),
@@ -169,7 +175,7 @@ def _sleutel() -> str:
     if sys.platform.startswith("win"):
         return "win32-x86_64"
     raise RuntimeError(
-        "De titels in de export kan BeatCut alleen op macOS en Windows zelf "
+        f"De titels in de export kan {editie.NAAM} alleen op macOS en Windows zelf "
         "klaarzetten. Installeer op Linux node en `npm i -g hyperframes` met de "
         "hand."
     )
@@ -266,7 +272,8 @@ def status() -> dict:
         "onderdelen": onderdelen,
         "bezig": is_bezig(),
         "bytes": _mapgrootte(nodemap(), chromemap(), paths.steun_map() / "node_modules"),
-        "nodig_bytes": RUIMTE_NODIG,
+        "nodig_bytes": DOWNLOAD_BYTES,
+        "ruimte_nodig_bytes": RUIMTE_NODIG,
         "uitleg": (
             "De titels in de export worden door een browser getekend. Dat is "
             "eenmalig ongeveer 400 MB ophalen; daarna werkt het offline."
@@ -422,7 +429,7 @@ def _stap_node(*, melder, stop) -> Path:
             return bestaand
         _meld(melder, "node", 0, 0,
               f"De Node op deze computer kan het niet ({waarom}); "
-              "BeatCut haalt zijn eigen op.")
+              f"{editie.NAAM} haalt zijn eigen op.")
 
     naam, sha = NODE_UITGAVEN[_sleutel()]
     deel = deelmap()
@@ -611,7 +618,7 @@ def installeer(melder=None, stop_event=None) -> dict:
     eind = status()
     if not eind["alles_klaar"]:
         raise RuntimeError(
-            "Klaar, maar BeatCut vindt nog niet alles: "
+            f"Klaar, maar {editie.NAAM} vindt nog niet alles: "
             + ", ".join(TITELS.get(n, n) for n in eind["ontbreekt"])
             + ". Draai het opnieuw; wat er staat blijft staan."
         )

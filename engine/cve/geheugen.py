@@ -34,6 +34,8 @@ zag. Wie dat wil corrigeren gebruikt `cve stijl <naam> --vergeet`.
 from __future__ import annotations
 
 import json
+import os
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -57,7 +59,24 @@ def keuzes_pad(project: str) -> Path:
 
 
 def geleerd_pad(stijl: str) -> Path:
-    return paths.STYLES / "geleerd" / f"{stijl}.json"
+    return geleerd_map() / f"{stijl}.json"
+
+
+def geleerd_map() -> Path:
+    """Waar het geleerde per stijl staat.
+
+    Ingevroren wees `paths.STYLES` ín de app-bundel: schrijven daar breekt de
+    handtekening van de app en een update gooit het weg (gezien 14-10-2026,
+    toen een QA-doorloop `styles/geleerd/` in de broncode achterliet). Dus:
+    in de app de steunmap, vanuit de broncode `styles/geleerd/` zoals altijd,
+    en `CVE_GELEERD` wijst een eigen plek aan (de QA-brug).
+    """
+    eigen = os.environ.get("CVE_GELEERD")
+    if eigen:
+        return Path(eigen).expanduser()
+    if getattr(sys, "frozen", False):
+        return paths.steun_map() / "geleerd"
+    return paths.STYLES / "geleerd"
 
 
 # --------------------------------------------------------------------------

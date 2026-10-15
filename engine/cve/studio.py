@@ -448,8 +448,6 @@ class StudioHandler(BaseHTTPRequestHandler):
                         "naam": s.naam,
                         "titel": s.titel,
                         "omschrijving": s.omschrijving,
-                        "min_shot": s.ritme.min_shot,
-                        "max_shot": s.ritme.max_shot,
                         "drops": s.ritme.drops,
                         # Wat deze stijl uit eerdere keuzes heeft opgepikt.
                         # Zichtbaar maken is het halve werk: een systeem dat

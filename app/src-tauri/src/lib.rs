@@ -1,3 +1,4 @@
+mod bijwerken;
 mod engine;
 
 use engine::EngineStaat;
@@ -24,7 +25,15 @@ async fn engine(app: tauri::AppHandle, methode: String, params: Option<Value>) -
 
 /// `BeatCut --zelftest`: start de engine zonder venster, vraag hallo + doctor,
 /// print het resultaat en stop. Bewijs dat de gebouwde app zijn engine vindt.
+/// De ingebakken config en iconen. De macro mag maar één keer in een programma
+/// voorkomen (hij bakt o.a. de Info.plist als symbool in), dus iedereen die de
+/// context nodig heeft komt hierlangs.
+fn context() -> tauri::Context {
+    tauri::generate_context!()
+}
+
 pub fn zelftest() -> i32 {
+    zet_appnaam(&context());
     let staat = EngineStaat::default();
     match engine::zoek_engine() {
         Ok(o) => println!("engine: {} {}", o.programma.display(), o.args.join(" ")),
@@ -103,7 +112,7 @@ pub fn updatetest() -> i32 {
 
     let app = match tauri::Builder::default()
         .plugin(updater())
-        .build(tauri::generate_context!())
+        .build(context())
     {
         Ok(a) => a,
         Err(e) => {
@@ -160,13 +169,92 @@ pub fn updatetest() -> i32 {
     })
 }
 
+/// Elke panic ook naar een logbestand. Gestart vanuit de Finder gaat stderr
+/// nergens heen, en dan zegt een crashrapport alleen "abort() called" zonder
+/// regel of reden (15-10-2026). Nu staat er waar en waarom.
+fn paniek_naar_log(appnaam: String) {
+    let standaard = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        if let Some(map) = paniekmap(&appnaam) {
+            let _ = std::fs::create_dir_all(&map);
+            let draad = std::thread::current();
+            let regel = format!(
+                "{} · draad '{}' · {}\n",
+                tijdstempel(),
+                draad.name().unwrap_or("?"),
+                info
+            );
+            use std::io::Write;
+            if let Ok(mut f) = std::fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(map.join("paniek.log"))
+            {
+                let _ = f.write_all(regel.as_bytes());
+            }
+        }
+        standaard(info);
+    }));
+}
+
+fn paniekmap(appnaam: &str) -> Option<std::path::PathBuf> {
+    #[cfg(target_os = "macos")]
+    {
+        std::env::var_os("HOME").map(|h| std::path::PathBuf::from(h).join("Library/Logs").join(appnaam))
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        std::env::var_os("LOCALAPPDATA").map(|h| std::path::PathBuf::from(h).join(appnaam).join("logs"))
+    }
+}
+
+/// De naam van deze editie, uit `productName` in de (samengevoegde) Tauri-config.
+/// Zo weet de engine onder welke naam hij draait: `BEATCUT_APPNAAM` gaat naar
+/// elk kindproces (`engine/cve/editie.py`), en daarmee krijgt elke editie
+/// een eigen steunmap en Films-map. Zie app/edities/LEESMIJ.md.
+fn zet_appnaam(context: &tauri::Context) -> String {
+    let naam = context.config().product_name.clone().unwrap_or_else(|| "BeatCut".to_string());
+    // Alleen zetten als niemand hem al aanwees: een QA-brug of test mag de
+    // naam overschrijven om een andere steunmap te krijgen.
+    if std::env::var_os("BEATCUT_APPNAAM").is_none() {
+        std::env::set_var("BEATCUT_APPNAAM", &naam);
+    }
+    naam
+}
+
+fn tijdstempel() -> String {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| format!("unix {}", d.as_secs()))
+        .unwrap_or_default()
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // Zie Cargo.toml bij `rustls`: vóór het eerste https-verzoek, en het mag
+    // falen als de plugin ons voor was.
+    let _ = rustls::crypto::ring::default_provider().install_default();
+    let context = context();
+    let appnaam = zet_appnaam(&context);
+    paniek_naar_log(appnaam);
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_process::init())
+        // Plek en grootte van het venster bewaren: wie BeatCut links op een
+        // breed scherm zet, wil hem daar na een herstart terugzien.
+        .plugin(
+            tauri_plugin_window_state::Builder::default()
+                .with_state_flags(
+                    tauri_plugin_window_state::StateFlags::POSITION
+                        | tauri_plugin_window_state::StateFlags::SIZE
+                        | tauri_plugin_window_state::StateFlags::MAXIMIZED,
+                )
+                .build(),
+        )
         .plugin(updater())
+        .manage(bijwerken::BijwerkStaat::default())
+        .manage(bijwerken::Opgehaald::default())
         .setup(|app| {
             beeldjes_toestaan(app.handle());
             // De callback heeft de AppHandle nodig, en die bestaat pas hier.
@@ -176,7 +264,21 @@ pub fn run() {
             })));
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![engine])
-        .run(tauri::generate_context!())
-        .expect("BeatCut kon niet starten");
+        .invoke_handler(tauri::generate_handler![
+            engine,
+            bijwerken::bijwerken_controleer,
+            bijwerken::bijwerken_ophalen,
+            bijwerken::bijwerken_installeer
+        ])
+        .build(context)
+        .expect("BeatCut kon niet starten")
+        .run(|app, gebeurtenis| {
+            // Het venster is dicht: de engine mee laten stoppen, anders blijft
+            // het Python-proces met zijn ffmpeg-kinderen soms doorlopen.
+            if let tauri::RunEvent::Exit = gebeurtenis {
+                if let Some(staat) = app.try_state::<EngineStaat>() {
+                    staat.stop();
+                }
+            }
+        });
 }

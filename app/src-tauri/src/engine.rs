@@ -26,11 +26,44 @@ use std::time::Duration;
 /// een draad voorgoed vastzetten.
 const GEDULD: Duration = Duration::from_secs(600);
 
+/// Vragen die bestanden van de gebruiker kopiëren of verplaatsen en pas
+/// antwoorden als dat klaar is. Die mogen we niet na tien minuten opgeven: de
+/// engine werkt dan gewoon door, terwijl de dialoog "mislukt" zegt en weer
+/// bedienbaar wordt — en het project daarna alsnog verdwijnt. Een trage
+/// schijf of een kopie van tientallen GB is geen fout. Sterft de engine, dan
+/// merkt de leesdraad dat en komt de vraag toch terug (`Disconnected`).
+const LANG_WERK: [&str; 3] = ["project.verwijder", "project.terugzetten", "project.voegtoe"];
+const LANG_GEDULD: Duration = Duration::from_secs(6 * 60 * 60);
+
+fn geduld(methode: &str) -> Duration {
+    if LANG_WERK.contains(&methode) {
+        LANG_GEDULD
+    } else {
+        GEDULD
+    }
+}
+
 /// Wat er met een ongevraagd bericht van de engine gebeurt.
 /// In de app: `app.emit("engine-gebeurtenis", …)`.
 pub type OpGebeurtenis = Arc<dyn Fn(String, Value) + Send + Sync>;
 
 type Wachtenden = Arc<Mutex<HashMap<u64, Sender<Value>>>>;
+
+/// Waarom een vraag mislukte. `Gestopt` is de enige reden om een nieuwe
+/// engine te starten; `Antwoord` is een nee van een engine die gewoon leeft.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum EngineFout {
+    Gestopt(String),
+    Antwoord(String),
+}
+
+impl From<EngineFout> for String {
+    fn from(f: EngineFout) -> String {
+        match f {
+            EngineFout::Gestopt(s) | EngineFout::Antwoord(s) => s,
+        }
+    }
+}
 
 pub struct Engine {
     child: Mutex<std::process::Child>,
@@ -154,39 +187,55 @@ impl Engine {
     /// Eén verzoek, wacht op het antwoord met hetzelfde id.
     /// `&self`, niet `&mut self`: meerdere vragen tegelijk moeten kunnen.
     pub fn vraag(&self, methode: &str, params: Value) -> Result<Value, String> {
+        self.vraag_getypeerd(methode, params).map_err(String::from)
+    }
+
+    /// Als `vraag`, maar met het onderscheid dat `EngineStaat` nodig heeft:
+    /// is de engine weg (dan mag er één keer een nieuwe komen), of zei hij
+    /// zelf nee? Dat onderscheid hing tot 13-10-2026 aan het woord "gestopt"
+    /// in de fouttekst — en een engine-fout met dat woord erin ("het
+    /// klaarzetten is gestopt") herstartte dan een gezonde engine.
+    pub fn vraag_getypeerd(&self, methode: &str, params: Value) -> Result<Value, EngineFout> {
         let id = self.volgende_id.fetch_add(1, Ordering::Relaxed);
         let (zender, ontvanger) = channel();
         self.wachtenden
             .lock()
-            .map_err(|_| "engine-slot vergiftigd")?
+            .map_err(|_| EngineFout::Antwoord("engine-slot vergiftigd".into()))?
             .insert(id, zender);
 
         let verzoek = json!({ "id": id, "methode": methode, "params": params });
         // Alleen het schrijven staat onder slot, nooit het wachten.
         let geschreven = {
-            let mut pijp = self.stdin.lock().map_err(|_| "engine-slot vergiftigd")?;
+            let mut pijp = self
+                .stdin
+                .lock()
+                .map_err(|_| EngineFout::Antwoord("engine-slot vergiftigd".into()))?;
             writeln!(pijp, "{verzoek}").and_then(|_| pijp.flush())
         };
         if let Err(e) = geschreven {
             self.vergeet(id);
-            // "gestopt" in de tekst: daarop herstart `EngineStaat` één keer.
-            return Err(format!("de engine is gestopt bij het schrijven: {e}"));
+            return Err(EngineFout::Gestopt(format!("de engine is gestopt bij het schrijven: {e}")));
         }
 
-        match ontvanger.recv_timeout(GEDULD) {
+        let geduld = geduld(methode);
+        match ontvanger.recv_timeout(geduld) {
             Ok(antwoord) => {
                 if let Some(fout) = antwoord.get("fout") {
                     let bericht =
                         fout.get("bericht").and_then(Value::as_str).unwrap_or("onbekende fout");
-                    return Err(bericht.to_string());
+                    return Err(EngineFout::Antwoord(bericht.to_string()));
                 }
                 Ok(antwoord.get("resultaat").cloned().unwrap_or(Value::Null))
             }
             // De leesdraad gooide de zender weg: einde-bestand, engine dood.
-            Err(RecvTimeoutError::Disconnected) => Err("de engine is gestopt".into()),
+            Err(RecvTimeoutError::Disconnected) => {
+                Err(EngineFout::Gestopt("de engine is gestopt".into()))
+            }
             Err(RecvTimeoutError::Timeout) => {
                 self.vergeet(id);
-                Err(format!("de engine antwoordt niet op '{methode}' ({GEDULD:?})"))
+                Err(EngineFout::Antwoord(format!(
+                    "de engine antwoordt niet op '{methode}' ({geduld:?})"
+                )))
             }
         }
     }
@@ -274,18 +323,39 @@ impl EngineStaat {
     pub fn vraag(&self, methode: &str, params: Value) -> Result<Value, String> {
         for poging in 0..2 {
             let eng = self.engine()?;
-            match eng.vraag(methode, params.clone()) {
+            match eng.vraag_getypeerd(methode, params.clone()) {
                 Ok(v) => return Ok(v),
-                Err(e) if poging == 0 && e.contains("gestopt") => self.gooi_weg(&eng),
-                Err(e) => return Err(e),
+                Err(EngineFout::Gestopt(_)) if poging == 0 => self.gooi_weg(&eng),
+                Err(e) => return Err(e.into()),
             }
         }
         Err("de engine stopt steeds".into())
+    }
+
+    /// Stop de engine, nu. Voor het afsluiten van de app: zonder dit bleef
+    /// het Python-proces (met zijn ffmpeg-kinderen) soms doorlopen nadat het
+    /// venster dicht was. `Drop` op `Engine` doet het echte werk; hier wordt
+    /// alleen de laatste verwijzing losgelaten, en daarna start er niets meer.
+    pub fn stop(&self) {
+        if let Ok(mut slot) = self.huidige.lock() {
+            *slot = None;
+        }
     }
 }
 
 #[cfg(test)]
 mod tests {
+    /// Codex 04-10-2026: na tien minuten gaf de brug een verwijdering op die
+    /// de engine daarna alsnog uitvoerde.
+    #[test]
+    fn werk_dat_bestanden_verplaatst_krijgt_de_tijd() {
+        for methode in ["project.verwijder", "project.terugzetten", "project.voegtoe"] {
+            assert!(super::geduld(methode) >= std::time::Duration::from_secs(3600), "{methode}");
+        }
+        assert_eq!(super::geduld("doctor"), super::GEDULD);
+        assert_eq!(super::geduld("project.omvang"), super::GEDULD);
+    }
+
     use super::*;
 
     /// Draait tegen de echte engine uit `.venv` — de snelste toets dat het
@@ -468,6 +538,24 @@ mod tests {
             }
             drop(slot.take()); // weg, alsof hij zelf gevallen was
         }
+        assert_eq!(staat.vraag("hallo", json!({})).expect("opnieuw")["protocol"], 1);
+    }
+
+    /// Een nee van een levende engine is geen reden voor een nieuwe — ook
+    /// niet als het woord "gestopt" in de fouttekst staat (13-10-2026).
+    #[test]
+    fn een_fout_van_de_engine_herstart_hem_niet() {
+        let staat = EngineStaat::default();
+        assert!(staat.vraag("hallo", json!({})).is_ok());
+        let eerste = staat.huidige.lock().expect("slot").clone().expect("engine");
+        let fout = eerste.vraag_getypeerd("bestaat-niet", json!({})).unwrap_err();
+        assert!(matches!(fout, EngineFout::Antwoord(_)), "{fout:?}");
+        let _ = staat.vraag("bestaat-niet", json!({}));
+        let tweede = staat.huidige.lock().expect("slot").clone().expect("engine");
+        assert!(Arc::ptr_eq(&eerste, &tweede), "de engine is onnodig herstart");
+        // En na stop() start er pas weer een als iemand iets vraagt.
+        staat.stop();
+        assert!(staat.huidige.lock().expect("slot").is_none());
         assert_eq!(staat.vraag("hallo", json!({})).expect("opnieuw")["protocol"], 1);
     }
 }

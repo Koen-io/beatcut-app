@@ -128,6 +128,15 @@ class VideoBlok:
     overgang_in: Overgang = field(default_factory=Overgang)
     reden: str = ""  # waarom dit blok gekozen is - leesbaar voor mens en model
     vast: bool = False  # door de gebruiker vastgezet; de regisseur laat het staan
+    # -- kleurafstemming en stabilisatie (13-10-2026) ------------------------
+    # Versterking per kanaal, {"r": 1.04, "g": 1.0, "b": 0.93}, zodat clips
+    # met verschillende belichting en witbalans één reeks vormen vóór de look.
+    # Leeg is de eenheid. Berekend door `kleurmatch.py`; EDL.afstemmen zet het
+    # aan of uit zonder de getallen weg te gooien.
+    kleur: dict[str, float] = field(default_factory=dict)
+    # Trilling wegfilteren (ffmpeg `deshake`). Alleen in de export: de
+    # voorvertoning laat het origineel zien, en zegt dat erbij.
+    stabiliseer: bool = False
 
     @property
     def tijdlijn_eind(self) -> float:
@@ -294,6 +303,8 @@ class EDL:
     # Stijl veranderd is. Zonder dit zou elke render opnieuw regisseren en elke
     # handmatige wijziging uit stap 4 weggooien.
     brief: dict = field(default_factory=dict)
+    # Kleurafstemming per clip aan of uit (zie VideoBlok.kleur). Standaard aan.
+    afstemmen: bool = True
     video: list[VideoBlok] = field(default_factory=list)
     overlay: list[OverlayBlok] = field(default_factory=list)
     audio: list[AudioSpoor] = field(default_factory=list)
@@ -318,6 +329,7 @@ class EDL:
             "afwerking": asdict(self.afwerking),
             "effectseed": self.effectseed,
             "brief": self.brief,
+            "afstemmen": self.afstemmen,
             "duur": self.duur,
             "video": [asdict(b) for b in self.video],
             "overlay": [asdict(b) for b in self.overlay],
@@ -369,6 +381,7 @@ class EDL:
             afwerking=Afwerking(**d.get("afwerking", {})),
             effectseed=int(d.get("effectseed", 0)),
             brief=dict(d.get("brief") or {}),
+            afstemmen=bool(d.get("afstemmen", True)),
             notities=d.get("notities", ""),
         )
         for b in d.get("video", []):

@@ -25,6 +25,7 @@ Na het genereren is er altijd nabewerking nodig - dat is geen luxe:
 
 from __future__ import annotations
 
+import atexit
 import json
 import os
 import queue
@@ -55,6 +56,13 @@ LM_BACKEND = "mlx" if sys.platform == "darwin" else "pt"
 GEDULD_START = 600.0
 GEDULD_TRACK = 900.0
 
+# Het serverscript staat als los bestand in de tijdelijke map. Een engine die
+# gekilld wordt komt nooit bij `stop()`, dus de volgende start ruimt op wat
+# ouder is dan dit. Niet alles: een vers script kan van een tweede BeatCut
+# zijn die net opstart en het nog moet inlezen.
+SCRIPT_VOORVOEGSEL = "beatcut-muziekserver-"
+SCRIPT_OUD = 3600.0
+
 # -50 dBFS: onder deze grens noemen we het stilte. Zelfde grens als in de
 # meting van VERSLAG §4, zodat de getallen daar hier terugkomen.
 STILTE_DBFS = -50.0
@@ -64,48 +72,82 @@ MAAT = 4  # 4/4; ACE-Step krijgt timesignature="4" mee
 # Per genre een vaste beschrijving, een toonsoort en een standaardtempo. De
 # beschrijving is wat ACE-Step werkelijk stuurt; de chip in de interface is
 # alleen het label.
+#
+# Herschreven op 05-10-2026 omdat de muziek "kinderachtig en springerig" klonk.
+# Wat de handleiding van ACE-Step vraagt en hier dus in elke regel staat: echte
+# instrumenten bij naam, woorden over klankkleur en productie (warm, polished,
+# wide), en geen stemmingswoorden die om huppelen vragen. "Catchy", "upbeat",
+# "bright plucked", "bell textures" en "sunny" zijn er daarom uit, en zes van
+# de acht staan in mineur.
 GENRES: dict[str, dict] = {
     "Pop": dict(
-        bpm=118, keyscale="F major",
-        beschrijving="Modern pop track, catchy melody, punchy drums, warm bass, "
-                     "bright synth chords, polished radio production, confident and upbeat",
+        bpm=112, keyscale="A minor",
+        beschrijving="Contemporary pop instrumental, tight studio drum kit, round electric "
+                     "bass, warm electric piano chords, clean muted guitar, soft analog synth "
+                     "pad, restrained melody, polished modern production, wide stereo mix",
     ),
     "House": dict(
-        bpm=124, keyscale="A minor",
-        beschrijving="Energetic house track, four-on-the-floor kick, driving bassline, "
-                     "bright plucked synth stabs, airy pads, crisp hi-hats, club-ready",
+        bpm=122, keyscale="A minor",
+        beschrijving="Deep house instrumental, solid four-on-the-floor kick, warm rolling "
+                     "sub bassline, lush sustained chord pads, soft filtered synth stabs, "
+                     "crisp closed hi-hats, smooth and hypnotic, professional club mix",
     ),
     "Electronic": dict(
-        bpm=128, keyscale="D minor",
-        beschrijving="Modern electronic track, crisp programmed drums, wide analog synths, "
-                     "sidechained pads, clean low end, precise and forward-moving",
+        bpm=124, keyscale="D minor",
+        beschrijving="Modern melodic electronic instrumental, punchy programmed drums, "
+                     "wide analog synth pads, deep clean sub bass, slow evolving arpeggio, "
+                     "sidechained atmosphere, sleek and cinematic, polished mastering",
     ),
     "Hiphop": dict(
-        bpm=92, keyscale="G minor",
-        beschrijving="Hip hop instrumental, hard boom bap drums, deep sub bass, "
-                     "sampled chords, vinyl texture, confident head-nod groove",
+        bpm=90, keyscale="G minor",
+        beschrijving="Hip hop instrumental, heavy boom bap drums, deep sub bass, "
+                     "soulful sampled electric piano chords, vinyl texture, "
+                     "laid-back head-nod groove, dark and confident, professional mix",
     ),
     "Lofi": dict(
-        bpm=82, keyscale="C major",
-        beschrijving="Lo-fi beat, dusty drums, soft electric piano, warm tape saturation, "
-                     "mellow bass, relaxed and nostalgic",
+        bpm=80, keyscale="D minor",
+        beschrijving="Lo-fi hip hop instrumental, dusty swung drums, mellow Rhodes electric "
+                     "piano, warm upright bass, soft tape saturation, gentle jazz guitar, "
+                     "relaxed and intimate, late night mood",
     ),
     "Cinematic": dict(
-        bpm=90, keyscale="C major",
-        beschrijving="Cinematic score, warm sustained strings, soft piano motif, "
-                     "subtle low drone, slow build, spacious and hopeful",
+        bpm=86, keyscale="D minor",
+        beschrijving="Cinematic film score, warm string ensemble, felt piano motif, "
+                     "deep low brass and sub drone, distant orchestral percussion, slow "
+                     "emotional build, spacious concert hall, epic and serious",
     ),
     "Indie": dict(
-        bpm=112, keyscale="E major",
-        beschrijving="Indie track, jangly electric guitars, live drum kit, melodic bass, "
-                     "bright and open, sunny and unhurried",
+        bpm=108, keyscale="G major",
+        beschrijving="Indie rock instrumental, clean chorus electric guitars, live acoustic "
+                     "drum kit, melodic bass guitar, warm tube amp tone, natural room sound, "
+                     "open and unhurried, organic band recording",
     ),
     "Ambient": dict(
-        bpm=70, keyscale="A major",
-        beschrijving="Ambient piece, long evolving pads, soft bell textures, "
-                     "deep slow swells, almost no percussion, calm and weightless",
+        bpm=70, keyscale="A minor",
+        beschrijving="Ambient instrumental, long evolving analog pads, soft reverberant "
+                     "piano notes, deep slow swells, distant textures, no drums, "
+                     "calm, weightless and spacious, immersive stereo",
     ),
 }
+
+# --- Hoe ACE-Step gevraagd wordt te spelen (05-10-2026) --------------------
+# `shift` stond op de standaardwaarde 1,0. De handleiding van ACE-Step
+# (docs/en/INFERENCE.md) raadt voor het turbo-model 3,0 aan: "clearer, richer
+# timbre" en een vastere opbouw. Acht stappen op shift 1 is de dunne,
+# speelgoedachtige klank waar Koen over viel.
+SHIFT = 3.0
+# Het taalmodel mag de beschrijving niet meer herschrijven. Dat deed het
+# standaard, en dan stuurt niet onze zorgvuldige regel hierboven het geluid
+# maar wat het taalmodel ervan maakte. Tempo, toonsoort en maatsoort geven we
+# zelf al mee; daar valt niets meer te raden.
+COT_CAPTION = False
+# Waar het taalmodel bij het plannen van weg moet blijven. Dit stuurt alleen
+# de planner; het geluidsmodel zelf kent geen negatieve prompt.
+NEGATIEF = (
+    "childish, toy instruments, music box, glockenspiel, xylophone, kazoo, "
+    "chiptune, 8-bit, cartoon, nursery rhyme, novelty sound effects, quirky, "
+    "playful, bouncy, comedic"
+)
 
 # Welk tempo bij welke montagestijl past. Actie wil snel, landschap wil ruimte.
 # Dit hoort in de engine en niet in de interface: de interface weet niet dat
@@ -237,6 +279,9 @@ for regel in sys.stdin:
             keyscale=v["keyscale"], timesignature="4",
             vocal_language=v["taal"], duration=float(v["duur"]),
             inference_steps=8, guidance_scale=1.0, seed=int(v["seed"]),
+            shift=float(v.get("shift", 3.0)),
+            use_cot_caption=bool(v.get("cot_caption", False)),
+            lm_negative_prompt=v.get("negatief") or "NO USER INPUT",
         )
         r = generate_music(dit, llm, params=params,
                            config=GenerationConfig(batch_size=1, audio_format="wav"),
@@ -273,6 +318,18 @@ def _leesdraad(stdout) -> "queue.Queue[str | None]":
     return rij
 
 
+def _ruim_oude_scripts() -> None:
+    """Serverscripts weg die een eerdere, gekillde engine liet staan."""
+    grens = time.time() - SCRIPT_OUD
+    for pad in Path(tempfile.gettempdir()).glob(f"{SCRIPT_VOORVOEGSEL}*.py"):
+        try:
+            if pad.stat().st_mtime < grens:
+                pad.unlink()
+        except OSError:
+            # Al weg, of van een andere gebruiker: niet onze zorg.
+            continue
+
+
 class Server:
     """Eén lopend ACE-Step-proces. Blijft staan zodat het model geladen blijft."""
 
@@ -304,10 +361,13 @@ class Server:
         py = paths.muziekmodel_python(self.wortel)
         if py is None:
             raise RuntimeError(f"Geen Python gevonden in {self.wortel / '.venv'}")
-        fd, naam = tempfile.mkstemp(prefix="beatcut-muziekserver-", suffix=".py")
+        _ruim_oude_scripts()
+        fd, naam = tempfile.mkstemp(prefix=SCRIPT_VOORVOEGSEL, suffix=".py")
         with os.fdopen(fd, "w", encoding="utf-8") as f:
             f.write(_SERVER_SRC)
         self._script = Path(naam)
+        # Niemand roept `stop()` aan als de engine gewoon afsluit.
+        atexit.register(self._script.unlink, missing_ok=True)
         return [str(py), naam, str(self.wortel)]
 
     def _omgeving(self) -> dict[str, str]:
@@ -316,6 +376,15 @@ class Server:
         omg.setdefault("HF_HOME", str(self.wortel / "hf"))
         omg["TOKENIZERS_PARALLELISM"] = "false"
         omg.setdefault("ACESTEP_LM_BACKEND", LM_BACKEND)
+        # **Het model komt van schijf, nooit van internet.** Zonder deze twee
+        # vlaggen gaan `huggingface_hub` en `transformers` bij elke start langs
+        # de hub om te kijken of er een nieuwere revisie is. Dat is precies wat
+        # BeatCut belooft niet te doen, het kost seconden op elke generatie, en
+        # op een machine zonder netwerk valt het terug op een time-out in
+        # plaats van meteen de lokale kopie te pakken. De gewichten staan er al
+        # — `muziekinstall` heeft ze eenmalig opgehaald. Gemeten 04-10-2026.
+        omg["HF_HUB_OFFLINE"] = "1"
+        omg["TRANSFORMERS_OFFLINE"] = "1"
         for v in ("http_proxy", "https_proxy", "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY"):
             omg.pop(v, None)
         return omg
@@ -621,6 +690,9 @@ def genereer(
                     "taal": "en" if zang else "unknown",
                     "duur": duur,
                     "seed": variantseed,
+                    "shift": SHIFT,
+                    "cot_caption": COT_CAPTION,
+                    "negatief": NEGATIEF,
                     "map": ruw,
                 })
                 rauw = Path(antwoord["pad"])
@@ -653,6 +725,7 @@ def genereer(
                 "gevraagde_duur": duur,
                 "seed": variantseed,
                 "prompt": prompt,
+                "shift": SHIFT,
                 "model": srv.model or MODEL,
                 "licentie": LICENTIE,
                 "gemaakt": datetime.now(timezone.utc).isoformat(timespec="seconds"),

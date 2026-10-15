@@ -9,6 +9,7 @@ import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { listen } from "@tauri-apps/api/event";
 import { open } from "@tauri-apps/plugin-dialog";
 import { duurTekst } from "./format";
+import { balkDeel, tijdenTekst } from "./voortgang";
 import {
   GEBEURTENIS,
   VIDEO_EXTENSIES,
@@ -17,17 +18,33 @@ import {
   projectMaak,
   projectVerwerk,
   projectVoegToe,
+  projectZonderOntbrekend,
   projecten,
   type Clip,
   type EngineGebeurtenis,
   type Project,
+  type Verwijderd,
   type Voortgang,
 } from "./engine";
+import Zijbalk from "./Zijbalk";
+import VerwijderDialoog from "./VerwijderDialoog";
+import TerugzetDialoog from "./TerugzetDialoog";
+import { grootteTekst, kruimelpad } from "./verwijderkeuze";
+import { teruggezetTekst, wachtTekst, type Teruggezet } from "./terugzetkeuze";
+import { EDITIE } from "./editie";
 
+/** Het open project, alleen voor deze keer dat de app draait. Bewust
+ *  sessionStorage: wisselen tussen de stappen houdt het project vast, maar een
+ *  nieuwe start begint leeg — Koen wil bij het openen niet in het vorige
+ *  project belanden (04-10-2026). Kies er een in de lijst, of sleep video's
+ *  erin en er komt meteen een nieuw project. */
 const ONTHOUD = "beatcut.project";
 /** Vanaf deze score krijgt een clip de accentkleur — zie het ontwerp. */
 const GOED = 0.8;
 const SKELETONS = 12;
+/** Hoe lang "staat in de Prullenmand" blijft staan. Lang genoeg om te lezen
+ *  waar het bewaarde heen ging, kort genoeg om niet te blijven hangen. */
+const MELDING_MS = 9000;
 
 const STAP_TEKST: Record<Voortgang["stap"], string> = {
   inlezen: "Beelden inlezen",
@@ -38,6 +55,20 @@ function scoreTekst(score: number | null): string {
   return score === null ? "—" : score.toFixed(2).replace(".", ",");
 }
 
+/** Laat de klok lopen zolang er werk is, zodat "verstreken" elke seconde
+ *  opschuift. De engine meldt alleen bij een afgeronde clip, en dat kan bij een
+ *  lange 4K-opname een halve minuut duren — een teller die dan stilstaat leest
+ *  als vastgelopen. */
+function useSeconde(actief: boolean): number {
+  const [tik, setTik] = useState(0);
+  useEffect(() => {
+    if (!actief) return;
+    const id = setInterval(() => setTik((t) => t + 1), 1000);
+    return () => clearInterval(id);
+  }, [actief]);
+  return tik;
+}
+
 type Props = {
   naarStijl: () => void;
   /** De titelbalk toont de projectnaam; die woont hier, niet in App. */
@@ -46,20 +77,29 @@ type Props = {
 
 export default function Media({ naarStijl, onProject }: Props) {
   const [lijst, setLijst] = useState<Project[] | null>(null);
-  const [gekozen, setGekozen] = useState<string | null>(() => localStorage.getItem(ONTHOUD));
+  const [gekozen, setGekozen] = useState<string | null>(() => sessionStorage.getItem(ONTHOUD));
   const [clips, setClips] = useState<Clip[] | null>(null);
   const [voortgang, setVoortgang] = useState<Voortgang | null>(null);
   const [fout, setFout] = useState<string | null>(null);
   const [sleept, setSleept] = useState(false);
   const [nieuw, setNieuw] = useState("");
   const [bezigToevoegen, setBezigToevoegen] = useState(false);
+  /** Het "…"-menu van één project, op de plek waar erom gevraagd werd. */
+  const [menu, setMenu] = useState<{ naam: string; x: number; y: number } | null>(null);
+  const [teVerwijderen, setTeVerwijderen] = useState<string | null>(null);
+  const [verwijderd, setVerwijderd] = useState<Verwijderd | null>(null);
+  /** Het pad van de kopie-zip waarvoor de terugzetdialoog open staat. */
+  const [terugTeZetten, setTerugTeZetten] = useState<string | null>(null);
+  const [teruggezet, setTeruggezet] = useState<Teruggezet | null>(null);
 
   // De gebeurtenislistener hangt er één keer, maar moet wel weten welk
   // project nú open staat; een ref voorkomt dat hij telkens opnieuw hangt.
   const gekozenRef = useRef(gekozen);
   gekozenRef.current = gekozen;
-  /** Project dat na de lopende ronde nóg een keer verwerkt moet worden. */
-  const nogmaals = useRef<string | null>(null);
+  /** Wanneer de laatste voortgangsmelding binnenkwam, als Date.now(). De
+   *  tijden in die melding staan stil tot de volgende; hiermee loopt de teller
+   *  tussendoor door. */
+  const ontvangen = useRef(0);
 
   const huidige = lijst?.find((p) => p.naam === gekozen) ?? null;
 
@@ -87,8 +127,8 @@ export default function Media({ naarStijl, onProject }: Props) {
     (async () => {
       try {
         const p = await haalLijst();
-        const onthouden = localStorage.getItem(ONTHOUD);
-        setGekozen(p.some((q) => q.naam === onthouden) ? onthouden : (p[0]?.naam ?? null));
+        const onthouden = sessionStorage.getItem(ONTHOUD);
+        setGekozen(p.some((q) => q.naam === onthouden) ? onthouden : null);
       } catch (e) {
         setFout(String(e));
         setLijst([]);
@@ -102,7 +142,7 @@ export default function Media({ naarStijl, onProject }: Props) {
       setClips([]);
       return;
     }
-    localStorage.setItem(ONTHOUD, gekozen);
+    sessionStorage.setItem(ONTHOUD, gekozen);
     setClips(null);
     setVoortgang(null);
     setFout(null);
@@ -114,7 +154,12 @@ export default function Media({ naarStijl, onProject }: Props) {
   useEffect(() => {
     const stop = listen<EngineGebeurtenis>(GEBEURTENIS, ({ payload }) => {
       if (payload.data.project !== gekozenRef.current) return;
+      // Alleen het inlezen hoort op dit scherm. Een render of muziekgeneratie
+      // voor hetzelfde project stuurde hier anders de analysebalk aan, en zijn
+      // "klaar" wiste de voortgang van het inlezen.
+      if (payload.data.werk !== "verwerk") return;
       if (payload.gebeurtenis === "voortgang") {
+        ontvangen.current = Date.now();
         setVoortgang(payload.data);
         return;
       }
@@ -126,10 +171,6 @@ export default function Media({ naarStijl, onProject }: Props) {
       setFout(null);
       void haalLijst();
       void haalClips(payload.data.project);
-      if (nogmaals.current === payload.data.project) {
-        nogmaals.current = null;
-        void projectVerwerk(payload.data.project).catch((e) => setFout(String(e)));
-      }
     });
     return () => {
       void stop.then((f) => f());
@@ -158,16 +199,19 @@ export default function Media({ naarStijl, onProject }: Props) {
         }
         await haalClips(doel);
         await haalLijst();
+        // Liep er al een ronde, dan boekt de engine er zelf één achteraan
+        // (`ingepland`) — die ronde pakt deze clips op. Dat hoort daar en niet
+        // hier: alleen de engine weet wanneer een ronde afloopt, en alleen zo
+        // kan de tijdschatting de bijgeboekte clips meerekenen in plaats van
+        // halverwege opnieuw te beginnen.
         const start = await projectVerwerk(doel);
-        if (start.gestart) {
+        // Alleen als dit project nog open staat: anders kreeg het project
+        // waar je intussen naartoe ging een balk die nooit meer wegging.
+        if (start.gestart && gekozenRef.current === doel) {
           // De eerste voortgangsmelding kan even op zich laten wachten. Zonder
           // dit valt de onderbalk terug op "klaar" en flikkert de knop aan.
+          ontvangen.current = Date.now();
           setVoortgang({ werk: "verwerk", project: doel, stap: "inlezen", gedaan: 0, totaal: 0, tekst: "Starten…" });
-        } else {
-          // De engine was nog bezig met een vorige ronde. Die ronde heeft de
-          // lijst met bronnen al vastgelegd, dus deze clips zitten er niet in:
-          // na "klaar" moet er nog een ronde overheen.
-          nogmaals.current = doel;
         }
       } catch (e) {
         setFout(String(e));
@@ -204,6 +248,90 @@ export default function Media({ naarStijl, onProject }: Props) {
     if (keuze) await voegToe(keuze);
   }
 
+  // Het menu sluit bij een klik ernaast, bij Esc en als het venster schuift.
+  useEffect(() => {
+    if (menu === null) return;
+    const sluit = () => setMenu(null);
+    const toets = (e: KeyboardEvent) => e.key === "Escape" && sluit();
+    window.addEventListener("pointerdown", sluit);
+    window.addEventListener("resize", sluit);
+    window.addEventListener("keydown", toets);
+    return () => {
+      window.removeEventListener("pointerdown", sluit);
+      window.removeEventListener("resize", sluit);
+      window.removeEventListener("keydown", toets);
+    };
+  }, [menu]);
+
+  useEffect(() => {
+    if (verwijderd === null) return;
+    const id = setTimeout(() => setVerwijderd(null), MELDING_MS);
+    return () => clearTimeout(id);
+  }, [verwijderd]);
+
+  useEffect(() => {
+    if (teruggezet === null) return;
+    const id = setTimeout(() => setTeruggezet(null), MELDING_MS);
+    return () => clearTimeout(id);
+  }, [teruggezet]);
+
+  async function kiesKopie() {
+    const keuze = await open({
+      title: "Kopie van een project kiezen",
+      multiple: false,
+      directory: false,
+      filters: [{ name: `${EDITIE.naam}-kopie`, extensions: ["zip"] }],
+    });
+    if (typeof keuze === "string") setTerugTeZetten(keuze);
+  }
+
+  /** Het project staat er weer: open het, en laat de voorvertoningen opnieuw
+   *  maken als die niet in de kopie zaten. */
+  async function naTerugzetten(uit: Teruggezet) {
+    setTerugTeZetten(null);
+    setVerwijderd(null);
+    setTeruggezet(uit);
+    setFout(null);
+    setGekozen(uit.naam);
+    gekozenRef.current = uit.naam;
+    await haalLijst();
+    if (uit.verwerken) await startVerwerk(uit.naam);
+  }
+
+  async function startVerwerk(naam: string) {
+    try {
+      const start = await projectVerwerk(naam);
+      if (start.gestart && gekozenRef.current === naam) {
+        ontvangen.current = Date.now();
+        setVoortgang({ werk: "verwerk", project: naam, stap: "inlezen", gedaan: 0, totaal: 0, tekst: "Starten…" });
+      }
+    } catch (e) {
+      setFout(String(e));
+    }
+  }
+
+  /** De gebruiker heeft de ontbrekende video's niet meer: het project gaat
+   *  verder met wat er ligt, en wordt daarvoor opnieuw ingelezen. */
+  async function verderZonder(naam: string) {
+    try {
+      await projectZonderOntbrekend(naam);
+      await haalLijst();
+      await haalClips(naam);
+      await startVerwerk(naam);
+    } catch (e) {
+      setFout(String(e));
+    }
+  }
+
+  /** Was het het open project, dan terug naar de lege startstand — en dat
+   *  vóór de engine begint, zodat niets in beeld nog een bestand vasthoudt. */
+  function sluitAls(naam: string) {
+    if (gekozenRef.current !== naam) return;
+    sessionStorage.removeItem(ONTHOUD);
+    gekozenRef.current = null;
+    setGekozen(null);
+  }
+
   async function maakProject(naam: string) {
     const schoon = naam.trim();
     if (schoon === "") return;
@@ -235,25 +363,77 @@ export default function Media({ naarStijl, onProject }: Props) {
   const aantalAan = clips?.filter((c) => c.aan).length ?? 0;
   const bezig = voortgang !== null || bezigToevoegen;
   const analyseKlaar = huidige?.is_geanalyseerd === true && !bezig;
+  const wacht = huidige !== null && huidige.ontbreekt.length > 0 ? wachtTekst(huidige.ontbreekt) : null;
   const kanDoor = analyseKlaar && aantalAan > 0;
+
+  // Elke seconde opnieuw tekenen zolang er werk is; `sinds` vult het gat
+  // tussen twee meldingen van de engine.
+  useSeconde(bezig);
+  const sinds = voortgang === null ? 0 : Math.max(0, (Date.now() - ontvangen.current) / 1000);
+  const verstreken = voortgang?.verstreken === undefined ? null : voortgang.verstreken + sinds;
+  // `resterend: null` betekent iets anders dan `undefined`: de engine meet nog
+  // en weet het niet (→ "schatten…"), tegenover werk dat helemaal niet schat.
+  const schat = voortgang !== null && "resterend" in voortgang;
+  const resterend =
+    voortgang?.resterend == null ? null : Math.max(0, voortgang.resterend - sinds);
+  // De balk mag nooit terug — dat leest als een fout. De engine klinkt zijn
+  // eigen breuk al vast, maar de seconden die hier tussen twee meldingen
+  // bijgeteld worden vallen weg zodra de volgende melding binnenkomt, en dan
+  // zakt de balk een procent terug. Een maximum eroverheen is genoeg; bij een
+  // nieuwe klus (geen voortgang meer) begint hij gewoon opnieuw.
+  const hoogste = useRef(0);
+  if (voortgang === null) hoogste.current = 0;
+  const ruw = balkDeel(voortgang, sinds);
+  const deel = ruw === null ? null : (hoogste.current = Math.max(hoogste.current, ruw));
+  const tijden = tijdenTekst(verstreken, schat, resterend);
 
   return (
     <div className={`werkvlak${sleept ? " sleept" : ""}`}>
-      <aside className="zijbalk">
+      <Zijbalk
+        kant="links"
+        sleutel="media"
+        standaard={232}
+        naam="de projectlijst"
+      >
         <div className="groep">
           <div className="kop-klein">Projecten</div>
           {lijst === null && <div className="lijst-leeg">Laden…</div>}
           {lijst?.length === 0 && <div className="lijst-leeg">Nog geen projecten</div>}
           {lijst?.map((p) => (
-            <button
+            <div
               key={p.naam}
-              className="lijst-item"
-              aria-pressed={p.naam === gekozen}
-              onClick={() => setGekozen(p.naam)}
+              className="lijst-rij"
+              onContextMenu={(e) => {
+                e.preventDefault();
+                setMenu({ naam: p.naam, x: e.clientX, y: e.clientY });
+              }}
             >
-              <span className="naam">{p.naam}</span>
-              <span className="mono aantal">{p.aantal_clips}</span>
-            </button>
+              <button
+                className="lijst-item"
+                aria-pressed={p.naam === gekozen}
+                onClick={() => setGekozen(p.naam)}
+              >
+                <span className="naam">{p.naam}</span>
+                <span className="mono aantal">{p.aantal_clips}</span>
+              </button>
+              <button
+                className="lijst-meer"
+                aria-label={`Meer voor ${p.naam}`}
+                aria-haspopup="menu"
+                aria-expanded={menu?.naam === p.naam}
+                onPointerDown={(e) => e.stopPropagation()}
+                onClick={(e) => {
+                  const vak = e.currentTarget.getBoundingClientRect();
+                  setMenu(menu?.naam === p.naam ? null : { naam: p.naam, x: vak.left, y: vak.bottom + 4 });
+                }}
+              >
+                <svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor" aria-hidden="true">
+                  <circle cx="2.5" cy="7" r="1.3" />
+                  <circle cx="7" cy="7" r="1.3" />
+                  <circle cx="11.5" cy="7" r="1.3" />
+                </svg>
+              </button>
+            </div>
           ))}
           <input
             className="nieuw-project"
@@ -266,7 +446,32 @@ export default function Media({ naarStijl, onProject }: Props) {
               if (e.key === "Escape") setNieuw("");
             }}
           />
+          <button className="lijst-actie" onClick={() => void kiesKopie()}>
+            <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d="M2 7a5 5 0 1 0 1.6-3.7" />
+              <path d="M2 1.8v2.4h2.4" />
+            </svg>
+            Kopie terugzetten…
+          </button>
         </div>
+
+        {teruggezet !== null && (
+          <div className="melding-weg" role="status">
+            <b>"{teruggezet.naam}" is teruggezet</b>
+            {teruggezetTekst(teruggezet) !== "" && <span>{teruggezetTekst(teruggezet)}</span>}
+          </div>
+        )}
+
+        {verwijderd !== null && (
+          <div className="melding-weg" role="status">
+            <b>"{verwijderd.naam}" staat in de {verwijderd.prullenbak}</b>
+            <span>
+              {grootteTekst(verwijderd.vrijgemaakt)} opgeruimd.
+              {verwijderd.bewaard !== null && <> Bewaard in {kruimelpad(verwijderd.bewaard)}.</>}
+              {verwijderd.kopie !== null && <> Kopie: {kruimelpad(verwijderd.kopie, 2)}.</>}
+            </span>
+          </div>
+        )}
 
         <div className="voetnoot">
           <b>Lokaal</b>
@@ -275,14 +480,60 @@ export default function Media({ naarStijl, onProject }: Props) {
             aangeraakt.
           </span>
         </div>
-      </aside>
+      </Zijbalk>
+
+      {menu !== null && (
+        <div
+          className="rijmenu"
+          role="menu"
+          aria-label={`Project ${menu.naam}`}
+          style={{ left: menu.x, top: menu.y }}
+          onPointerDown={(e) => e.stopPropagation()}
+        >
+          {/* Hier komt later Hernoemen bij; het menu is er al op gebouwd. */}
+          <button
+            role="menuitem"
+            className="gevaar"
+            autoFocus
+            onClick={() => {
+              setTeVerwijderen(menu.naam);
+              setMenu(null);
+            }}
+          >
+            Verwijderen…
+          </button>
+        </div>
+      )}
+
+      {teVerwijderen !== null && (
+        <VerwijderDialoog
+          project={teVerwijderen}
+          onSluit={() => setTeVerwijderen(null)}
+          onStart={() => sluitAls(teVerwijderen)}
+          onKlaar={(uit) => {
+            setTeVerwijderen(null);
+            setVerwijderd(uit);
+            void haalLijst();
+          }}
+        />
+      )}
+
+      {terugTeZetten !== null && (
+        <TerugzetDialoog
+          pad={terugTeZetten}
+          onSluit={() => setTerugTeZetten(null)}
+          onKlaar={(uit) => void naTerugzetten(uit)}
+        />
+      )}
 
       <main className="hoofd">
         <div className="hoofd-kop">
           <div>
             <h1>Media</h1>
             <p>
-              {clips === null
+              {gekozen === null
+                ? "Kies een project links, of sleep video's hierheen voor een nieuw project."
+                : clips === null
                 ? "Clips ophalen…"
                 : clips.length === 0
                   ? "Nog geen clips in dit project."
@@ -304,11 +555,21 @@ export default function Media({ naarStijl, onProject }: Props) {
           </div>
         )}
 
+        {wacht !== null && huidige !== null && (
+          <div className="melding-fout let-op" role="status">
+            <b>{wacht.kop}</b>
+            <span>{wacht.uitleg}</span>
+            <button className="knop-klein" disabled={bezig} onClick={() => void verderZonder(huidige.naam)}>
+              Verder zonder
+            </button>
+          </div>
+        )}
+
         <div className="clip-vlak">
           {clips === null ? (
             <div className="raster">
               {Array.from({ length: SKELETONS }, (_, i) => (
-                <div className="kaart skelet" key={i}>
+                <div className="clipkaart skelet" key={i}>
                   <div className="beeld" />
                   <div className="regel">
                     <span className="balkje" />
@@ -322,7 +583,7 @@ export default function Media({ naarStijl, onProject }: Props) {
               <Sleeppictogram />
               <b>Sleep je clips hierheen</b>
               <span>
-                Losse bestanden of een hele map. BeatCut maakt proxies, meet beweging, scherpte,
+                Losse bestanden of een hele map. {EDITIE.naam} maakt proxies, meet beweging, scherpte,
                 gezichten en GPS, en laat de bronbestanden ongemoeid.
               </span>
               <button
@@ -338,10 +599,11 @@ export default function Media({ naarStijl, onProject }: Props) {
               {clips.map((c) => (
                 <button
                   key={c.naam}
-                  className={`kaart${c.aan ? " aan" : ""}`}
+                  className={`clipkaart${c.aan ? " aan" : ""}${c.fout ? " onleesbaar" : ""}`}
                   aria-pressed={c.aan}
+                  disabled={!!c.fout}
                   onClick={() => void zet(c)}
-                  title={c.naam}
+                  title={c.fout ? `${c.naam} — ${c.fout}` : c.naam}
                 >
                   <div className="beeld">
                     {c.thumbnail !== null ? (
@@ -349,7 +611,7 @@ export default function Media({ naarStijl, onProject }: Props) {
                     ) : (
                       <div className="geen-beeld" />
                     )}
-                    <span className="duur mono">{duurTekst(c.duur)}</span>
+                    <span className="duur mono">{c.fout ? "niet te lezen" : duurTekst(c.duur)}</span>
                     {c.aan && (
                       <span className="vink" aria-hidden="true">
                         <svg width="12" height="12" viewBox="0 0 12 12">
@@ -396,24 +658,22 @@ export default function Media({ naarStijl, onProject }: Props) {
                   ? `${voortgang.totaal > 0 ? `${voortgang.gedaan}/${voortgang.totaal} · ` : ""}${voortgang.tekst}`
                   : "proxies · beweging · scherpte · gezichten · GPS"}
               </span>
+              {tijden !== null && <span className="tijden mono">{tijden}</span>}
             </div>
             <div className="voortgangsbalk">
               <div
-                className={`vulling${bezig && voortgang?.totaal === 0 ? " pendelt" : ""}`}
+                className={`vulling${bezig && deel === null ? " pendelt" : ""}`}
                 style={{
-                  "--deel": bezig
-                    ? voortgang && voortgang.totaal > 0
-                      ? voortgang.gedaan / voortgang.totaal
-                      : 1
-                    : analyseKlaar
-                      ? 1
-                      : 0,
+                  // Onbekend is niet "vol": dan pendelt de balk, en een
+                  // stand van 1 zou bij uitgezette beweging een volle balk
+                  // tonen terwijl er net begonnen is.
+                  "--deel": bezig ? (deel ?? 0) : analyseKlaar ? 1 : 0,
                 } as CSSProperties}
               />
             </div>
           </div>
           <button className="knop-groot" onClick={naarStijl} disabled={!kanDoor}>
-            Maak mijn video →
+            Verder: stijl en muziek →
           </button>
         </div>
       </main>

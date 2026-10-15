@@ -6,22 +6,36 @@
 // montage terug (shot.zet, regisseer) en die vervangt de stand in één keer —
 // twee administraties van dezelfde montage is er één te veel.
 //
-// Wat hier níet kan: een shot verschuiven of langer maken. De tijdlijnpositie
-// komt uit de muziek; alleen *wat* je in dat vak ziet is een keuze. Zie de
-// toelichting boven `engine/cve/bijwerken.py`.
-import { useEffect, useMemo, useState, type CSSProperties } from "react";
+// Monteren kan sinds 13-10-2026 ook: slepen om de volgorde te veranderen,
+// een snede een tel opschuiven, knippen, weghalen, en alles ongedaan maken.
+// Eén ding blijft heilig: een snede ligt op een tel. Zie de kop van
+// `engine/cve/monteren.py`; de sneltoetsen staan in `monteertoets.ts`.
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import {
+  projectAfstemmen,
   projectClipVoorkeur,
   projectMontage,
+  projectOngedaan,
+  projectOpnieuw,
   projectRegisseer,
+  projectShotSplits,
+  projectShotTrim,
+  projectShotVerplaats,
+  projectShotVerwijder,
   projectShotZet,
   type Montagestand,
   type Shot,
   type Vorm,
 } from "./engine";
 import { duurTekst, getal } from "./format";
+import { heeftHandwerk, telHandwerk } from "./handwerk";
+import { monteeractie, typtInVeld, type Monteeractie } from "./monteertoets";
+import { afstemTekst, redenTekst } from "./afstemtekst";
+import Ikoon from "./Ikoon";
 import Speler from "./speler/Speler";
+import Spraak from "./Spraak";
+import Zijbalk from "./Zijbalk";
 
 /** De snelheden uit het ontwerp. De engine klemt op 0,25–2×. */
 const SNELHEDEN = [0.25, 0.5, 1, 1.5, 2];
@@ -60,6 +74,9 @@ const SIGNAAL: Record<string, { label: string; om?: true; uitleg: string }> = {
   shake: { label: "Stabiel", om: true, uitleg: "Omgekeerd: hoe minder het trilt, hoe langer de balk." },
   vlakheid: { label: "Detail", om: true, uitleg: "Omgekeerd: een vlak, saai beeld geeft een korte balk." },
   te_donker: { label: "Helder", om: true, uitleg: "Omgekeerd: hoe donkerder het beeld, hoe korter de balk." },
+  audiopiek: { label: "Geluidspiek", uitleg: "Een kreet, klap of gelach: luider dan de rest van de clip." },
+  actiepiek: { label: "Actiepiek", uitleg: "Hier gebeurt meer dan elders in de clip: de sprong, de bocht." },
+  nieuwheid: { label: "Nieuw beeld", uitleg: "Hoe anders deze clip eruitziet dan de andere clips." },
 };
 
 /** De signalen zoals ze getoond worden: nette naam, en negatieve omgedraaid. */
@@ -83,15 +100,20 @@ type Props = {
   /** Legt de montage vast, gaat naar Exporteren en start de render. */
   onMaakVideo: () => void;
   naarStijl: () => void;
+  /** Mag de app internet op? Voor het ophalen van het spraakmodel. */
+  online?: boolean;
 };
 
-export default function Bijwerken({ project, keuze, onMaakVideo, naarStijl }: Props) {
+export default function Bijwerken({ project, keuze, onMaakVideo, naarStijl, online = true }: Props) {
   const [stand, setStand] = useState<Montagestand | null>(null);
-  const [laadt, setLaadt] = useState(true);
+  // Zonder project valt er niets te laden; anders bleef hier voor altijd
+  // "De montage ophalen…" staan.
+  const [laadt, setLaadt] = useState(project !== null);
   const [gekozen, setGekozen] = useState<string | null>(null);
   const [bezig, setBezig] = useState(false);
   const [fout, setFout] = useState<string | null>(null);
   const [uitleg, setUitleg] = useState<string | null>(null);
+  const [vraagOpnieuw, setVraagOpnieuw] = useState(false);
   const [tijd, setTijd] = useState(0);
 
   useEffect(() => {
@@ -113,6 +135,35 @@ export default function Bijwerken({ project, keuze, onMaakVideo, naarStijl }: Pr
   // zelf laten kiezen: de tijdlijn hieronder en de inspecteur rechts moeten
   // dezelfde stand tonen, en dat is deze.
   const spring = shot ? shot.start : null;
+  // Klikken op de maatbalk zet de afspeelkop binnen een shot, zodat knippen
+  // op de afspeelkop ook echt kan (15-10-2026: een shot kiezen zette de kop
+  // altijd op het begin, en dan knipte "S" altijd in het midden).
+  const [kopNaar, setKopNaar] = useState<number | null>(null);
+  // Een ander shot gekozen (klik, pijltjes, na een handeling): de kop gaat
+  // naar zijn begin. Behalve als de maatbalk dat shot zelf koos — dan blijft
+  // de kop waar geklikt is.
+  const kopVanBalk = useRef(false);
+  useEffect(() => {
+    if (kopVanBalk.current) {
+      kopVanBalk.current = false;
+      return;
+    }
+    setKopNaar(null);
+  }, [spring]);
+  function zoekOpBalk(e: React.MouseEvent<HTMLElement>) {
+    if (!stand || stand.duur <= 0) return;
+    const r = e.currentTarget.getBoundingClientRect();
+    const frac = Math.min(1, Math.max(0, (e.clientX - r.left) / Math.max(1, r.width)));
+    const t = frac * stand.duur;
+    // Ook het shot onder de kop kiezen: anders knipte "S" het eerder gekozen
+    // shot in het midden in plaats van dit shot op de kop (review 15-10-2026).
+    const onder = shots.find((s) => t >= s.start && t < s.start + s.duur) ?? shots[shots.length - 1];
+    if (onder && onder.id !== shot?.id) {
+      kopVanBalk.current = true;
+      setGekozen(onder.id);
+    }
+    setKopNaar(t);
+  }
 
   async function doe<T>(werk: () => Promise<T>, dan: (uit: T) => void) {
     setBezig(true);
@@ -133,6 +184,160 @@ export default function Bijwerken({ project, keuze, onMaakVideo, naarStijl }: Pr
       setStand,
     );
   }
+
+  // -- monteren ---------------------------------------------------------------
+  const geschiedenis = stand?.geschiedenis ?? { terug: 0, vooruit: 0 };
+  const [sleept, setSleeptState] = useState<string | null>(null);
+  const [sleepOp, setSleepOp] = useState<number | null>(null);
+  // Slepen met pointer-events, niet met HTML5 drag-and-drop: in de echte app
+  // (WKWebView) vangt Tauri's bestands-drop dat af en gebeurde er niets, terwijl
+  // het in Chrome wél werkte (gezien bij de eerste echte klikronde, 15-10-2026).
+  // Refs naast de state: de handlers op `window` lezen de stand van nu.
+  const sleeptRef = useRef<string | null>(null);
+  const sleepOpRef = useRef<number | null>(null);
+  const netGesleept = useRef(false);
+  const startRef = useRef<{ id: string; x: number; y: number } | null>(null);
+  const setSleept = (id: string | null) => {
+    sleeptRef.current = id;
+    setSleeptState(id);
+  };
+  const zetSleepOp = (i: number | null) => {
+    sleepOpRef.current = i;
+    setSleepOp(i);
+  };
+
+  function begin(e: React.PointerEvent, id: string) {
+    netGesleept.current = false;
+    if (bezig || e.button !== 0) return;
+    startRef.current = { id, x: e.clientX, y: e.clientY };
+  }
+
+  useEffect(() => {
+    const beweeg = (e: PointerEvent) => {
+      const start = startRef.current;
+      if (start === null) return;
+      // Pas na een paar pixels is het slepen; anders is het een klik.
+      if (sleeptRef.current === null) {
+        if (Math.hypot(e.clientX - start.x, e.clientY - start.y) < 6) return;
+        setSleept(start.id);
+        setGekozen(start.id);
+      }
+      const onder = document.elementFromPoint(e.clientX, e.clientY);
+      const knop = onder?.closest<HTMLElement>("[data-shot-index]");
+      const i = knop ? Number(knop.dataset.shotIndex) : null;
+      if (i !== sleepOpRef.current) zetSleepOp(i);
+    };
+    const los = () => {
+      const start = startRef.current;
+      startRef.current = null;
+      if (start === null || sleeptRef.current === null) return;
+      // De klik die de browser na het loslaten stuurt is geen keuze. Die klik
+      // komt meteen na `pointerup`; daarna gaat de vlag weer uit, ook als de
+      // klik op een ander element landde (review 15-10-2026).
+      netGesleept.current = true;
+      window.setTimeout(() => (netGesleept.current = false), 0);
+      const doel = sleepOpRef.current;
+      if (doel === null) {
+        setSleept(null);
+        zetSleepOp(null);
+        return;
+      }
+      zetNeer(doel);
+    };
+    window.addEventListener("pointermove", beweeg);
+    window.addEventListener("pointerup", los);
+    window.addEventListener("pointercancel", los);
+    return () => {
+      window.removeEventListener("pointermove", beweeg);
+      window.removeEventListener("pointerup", los);
+      window.removeEventListener("pointercancel", los);
+    };
+  });
+
+  /** Na een handeling: het gekozen shot blijft gekozen als het er nog is,
+   *  anders het shot dat nu op die plek staat. */
+  function naHandeling(m: Montagestand, plek?: number) {
+    setStand(m);
+    if (gekozen && m.shots.some((s) => s.id === gekozen)) return;
+    const i = Math.max(0, Math.min(m.shots.length - 1, plek ?? 0));
+    setGekozen(m.shots[i]?.id ?? null);
+  }
+
+  function voerUit(actie: Monteeractie) {
+    if (project === null || bezig) return;
+    const i = shot ? shots.findIndex((s) => s.id === shot.id) : -1;
+    switch (actie) {
+      case "ongedaan":
+        if (geschiedenis.terug > 0) void doe(() => projectOngedaan(project), (m) => naHandeling(m, i));
+        return;
+      case "opnieuw":
+        if (geschiedenis.vooruit > 0) void doe(() => projectOpnieuw(project), (m) => naHandeling(m, i));
+        return;
+      case "vorig-shot":
+        if (i > 0) setGekozen(shots[i - 1].id);
+        return;
+      case "volgend-shot":
+        if (i >= 0 && i < shots.length - 1) setGekozen(shots[i + 1].id);
+        return;
+    }
+    if (!shot) return;
+    switch (actie) {
+      case "splits": {
+        // Op de afspeelkop als die in dit shot staat; anders het midden.
+        const binnen = tijd > shot.start && tijd < shot.start + shot.duur;
+        void doe(() => projectShotSplits(project, shot.id, binnen ? tijd : undefined), (m) => naHandeling(m, i));
+        return;
+      }
+      case "verwijder":
+        if (shots.length > 1) {
+          void doe(() => projectShotVerwijder(project, shot.id), (m) => {
+            setGekozen(null);
+            naHandeling(m, Math.max(0, i - 1));
+          });
+        }
+        return;
+      case "snede-terug":
+      case "snede-vooruit":
+        if (i < shots.length - 1) {
+          const stap = actie === "snede-vooruit" ? 1 : -1;
+          void doe(() => projectShotTrim(project, shot.id, "eind", stap), (m) => naHandeling(m, i));
+        }
+        return;
+    }
+  }
+
+  function trimRand(kant: "begin" | "eind", stap: -1 | 1) {
+    if (project === null || !shot || bezig) return;
+    const i = shots.findIndex((s) => s.id === shot.id);
+    void doe(() => projectShotTrim(project, shot.id, kant, stap), (m) => naHandeling(m, i));
+  }
+
+  function zetNeer(doelIndex: number) {
+    const van = sleeptRef.current;
+    setSleept(null);
+    zetSleepOp(null);
+    if (project === null || van === null) return;
+    const vanIndex = shots.findIndex((s) => s.id === van);
+    if (vanIndex < 0 || vanIndex === doelIndex) return;
+    void doe(() => projectShotVerplaats(project, van, doelIndex), (m) => {
+      setStand(m);
+      setGekozen(m.shots[doelIndex]?.id ?? null);
+    });
+  }
+
+  // Sneltoetsen. Eén keer per render opnieuw aangehangen: de handlers lezen
+  // de stand van dit moment, en een verouderde sluiting knipt het verkeerde shot.
+  useEffect(() => {
+    const op = (e: KeyboardEvent) => {
+      if (typtInVeld(e.target as HTMLElement | null)) return;
+      const actie = monteeractie(e);
+      if (actie === null) return;
+      e.preventDefault();
+      voerUit(actie);
+    };
+    window.addEventListener("keydown", op);
+    return () => window.removeEventListener("keydown", op);
+  });
 
   function zetSnelheid(snelheid: number) {
     if (project === null || !shot) return;
@@ -160,8 +365,19 @@ export default function Bijwerken({ project, keuze, onMaakVideo, naarStijl }: Pr
     );
   }
 
+  /** "Opnieuw regisseren" gooit elk met de hand bijgestelde shot weg. Staat
+   *  er zulk handwerk, dan eerst vragen; anders meteen doen. */
+  function opnieuwGevraagd() {
+    if (heeftHandwerk(shots)) {
+      setVraagOpnieuw(true);
+      return;
+    }
+    opnieuw();
+  }
+
   function opnieuw() {
     if (project === null) return;
+    setVraagOpnieuw(false);
     void doe(
       () =>
         projectRegisseer(
@@ -201,7 +417,7 @@ export default function Bijwerken({ project, keuze, onMaakVideo, naarStijl }: Pr
     <div className="bijwerken">
       <div className="bovenhelft">
         <section className="podium-shot">
-          <Speler stand={stand} onTijd={setTijd} zoekNaar={spring} />
+          <Speler stand={stand} onTijd={setTijd} zoekNaar={kopNaar ?? spring} />
           <div className="speler-regel">
             <span className="noot">
               {stand.stijl} · {stand.vorm} · {stand.bpm ? `${Math.round(stand.bpm)} BPM` : "geen BPM"}
@@ -211,7 +427,13 @@ export default function Bijwerken({ project, keuze, onMaakVideo, naarStijl }: Pr
           {uitleg && <p className="kleine-noot">{uitleg}</p>}
         </section>
 
-        <aside className="zijbalk inspecteur">
+        <Zijbalk
+          kant="rechts"
+          sleutel="bijwerken"
+          standaard={400}
+          naam="het shotpaneel"
+          klasse="inspecteur"
+        >
           {fout && (
             <div className="melding-fout">
               <b>Dat ging niet goed</b>
@@ -338,6 +560,55 @@ export default function Bijwerken({ project, keuze, onMaakVideo, naarStijl }: Pr
               )}
 
               <div className="groep">
+                <span className="kop-klein">Beeld bijwerken</span>
+                <button
+                  className="schakelaar"
+                  role="switch"
+                  aria-checked={stand.afstemmen ?? true}
+                  disabled={bezig}
+                  onClick={() => {
+                    const aan = !(stand.afstemmen ?? true);
+                    void doe(() => projectAfstemmen(project, aan), setStand);
+                  }}
+                >
+                  <span>Clips op elkaar afstemmen</span>
+                  <span className="wip" />
+                </button>
+                <span className="kleine-noot">
+                  Helderheid en witbalans van elke clip naar die van de montage, vóór de look.
+                  {(stand.afstemmen ?? true) ? ` ${afstemTekst(shot.kleur)}` : ""}
+                </span>
+                <button
+                  className="schakelaar"
+                  role="switch"
+                  aria-checked={shot.stabiliseer ?? false}
+                  disabled={bezig}
+                  onClick={() =>
+                    void doe(
+                      () => projectShotZet(project, shot.id, { stabiliseer: !(shot.stabiliseer ?? false) }),
+                      setStand,
+                    )
+                  }
+                >
+                  <span>Dit shot stabiliseren</span>
+                  <span className="wip" />
+                </button>
+                <span className="kleine-noot">
+                  Haalt trilling weg in de export (ffmpeg deshake). De voorvertoning laat het
+                  origineel zien.
+                  {(shot.signalen.shake ?? 0) > 0.4 ? " Dit shot trilt flink." : ""}
+                </span>
+              </div>
+
+              <Spraak
+                project={project}
+                online={online}
+                onVeranderd={() => {
+                  void projectMontage(project).then((m) => m && setStand(m)).catch((e) => setFout(String(e)));
+                }}
+              />
+
+              <div className="groep">
                 <span className="kop-klein">Waarom dit shot</span>
                 {signalen(shot.signalen).map((s) => (
                   <div className="signaal" key={s.naam} title={s.uitleg}>
@@ -349,12 +620,17 @@ export default function Bijwerken({ project, keuze, onMaakVideo, naarStijl }: Pr
                   </div>
                 ))}
                 <span className="kleine-noot">Langer is beter; drie zijn omgedraaid.</span>
-                <span className="kleine-noot">{shot.reden}</span>
+                <span className="kleine-noot">
+                  {redenTekst(shot.reden, Object.fromEntries(Object.entries(SIGNAAL).map(([k, v]) => [k, v.label])))}
+                </span>
               </div>
 
               <div className="afsluiter">
+                <span className="route" aria-hidden="true">
+                  <b>2 Stijl</b>→<b>3 Look</b>→<b className="nu">4 Bijwerken</b>→<b>5 Exporteren</b>
+                </span>
                 <button className="knop-groot vol" onClick={onMaakVideo} disabled={bezig}>
-                  Maak video
+                  Maak video →
                 </button>
                 <span className="kleine-noot">
                   De montage staat al vast in <span className="mono">edl.json</span>; dit rendert
@@ -363,22 +639,72 @@ export default function Bijwerken({ project, keuze, onMaakVideo, naarStijl }: Pr
               </div>
             </>
           )}
-        </aside>
+        </Zijbalk>
       </div>
 
       <div className="tijdlijn">
         <div className="tijdlijn-kop">
-          <button className="knop-klein-rand" onClick={opnieuw} disabled={bezig}>
-            {bezig ? "Bezig…" : "Opnieuw regisseren"}
-          </button>
+          {vraagOpnieuw ? (
+            <span className="bevestiging" role="alertdialog" aria-label="Opnieuw regisseren?">
+              <span>
+                {telHandwerk(shots) === 1
+                  ? "1 shot met handwerk gaat verloren."
+                  : `${telHandwerk(shots)} shots met handwerk gaan verloren.`}
+              </span>
+              <button className="knop-klein" onClick={opnieuw} disabled={bezig}>
+                Toch opnieuw
+              </button>
+              <button className="knop-klein-rand" onClick={() => setVraagOpnieuw(false)}>
+                Laat staan
+              </button>
+            </span>
+          ) : (
+            <button className="knop-klein-rand" onClick={opnieuwGevraagd} disabled={bezig}>
+              {bezig ? "Bezig…" : "Opnieuw regisseren"}
+            </button>
+          )}
+          <span className="monteerbalk" role="toolbar" aria-label="Monteren">
+            <button className="ikoonknop" onClick={() => voerUit("ongedaan")}
+              disabled={bezig || geschiedenis.terug === 0} title="Ongedaan maken (⌘Z)"
+              aria-label="Ongedaan maken"><Ikoon naam="ongedaan" /></button>
+            <button className="ikoonknop" onClick={() => voerUit("opnieuw")}
+              disabled={bezig || geschiedenis.vooruit === 0} title="Opnieuw (⇧⌘Z)"
+              aria-label="Opnieuw"><Ikoon naam="opnieuw" /></button>
+            <span className="scheiding" />
+            <span className="randgroep" title="De snede vóór dit shot een tel verschuiven">
+              <span className="randlabel">Begin</span>
+              <button className="ikoonknop" onClick={() => trimRand("begin", -1)}
+                disabled={bezig || !shot || shots[0]?.id === shot.id}
+                title="Begin een tel eerder" aria-label="Begin een tel eerder"><Ikoon naam="links" /></button>
+              <button className="ikoonknop" onClick={() => trimRand("begin", 1)}
+                disabled={bezig || !shot || shots[0]?.id === shot.id}
+                title="Begin een tel later" aria-label="Begin een tel later"><Ikoon naam="rechts" /></button>
+            </span>
+            <button className="ikoonknop" onClick={() => voerUit("splits")}
+              disabled={bezig || !shot || (shot.tellen ?? 1) < 2}
+              title="Knippen op de afspeelkop (S)" aria-label="Knippen"><Ikoon naam="knip" /></button>
+            <span className="randgroep" title="De snede ná dit shot een tel verschuiven">
+              <button className="ikoonknop" onClick={() => trimRand("eind", -1)}
+                disabled={bezig || !shot || shots[shots.length - 1]?.id === shot.id}
+                title="Eind een tel eerder (,)" aria-label="Eind een tel eerder"><Ikoon naam="links" /></button>
+              <button className="ikoonknop" onClick={() => trimRand("eind", 1)}
+                disabled={bezig || !shot || shots[shots.length - 1]?.id === shot.id}
+                title="Eind een tel later (.)" aria-label="Eind een tel later"><Ikoon naam="rechts" /></button>
+              <span className="randlabel">Eind</span>
+            </span>
+            <span className="scheiding" />
+            <button className="ikoonknop" onClick={() => voerUit("verwijder")}
+              disabled={bezig || !shot || shots.length < 2}
+              title="Shot weghalen (⌫)" aria-label="Shot weghalen"><Ikoon naam="weg" /></button>
+          </span>
           <span className="kleine-noot">
-            {tellen} tellen · {stand.maten.length} maten · klik een shot om het te bewerken
+            {tellen} tellen · {stand.maten.length} maten · sleep een shot om de volgorde te veranderen
           </span>
         </div>
         <div className="sporen">
           <div className="spoor">
             <span className="label" />
-            <div className="maatbalk">
+            <div className="maatbalk" onClick={zoekOpBalk} title="Klik om de afspeelkop hier te zetten">
               {stand.maten.map((m) => (
                 <span
                   key={m.nummer}
@@ -394,17 +720,27 @@ export default function Bijwerken({ project, keuze, onMaakVideo, naarStijl }: Pr
           <div className="spoor">
             <span className="label">Beeld</span>
             <div className="beeldspoor">
-              {shots.map((s) => (
+              {shots.map((s, i) => (
                 <button
                   key={s.id}
-                  className="shot"
+                  className={`shot${sleept === s.id ? " sleept" : ""}${sleepOp === i && sleept !== s.id ? " sleepdoel" : ""}${sleepOp === i && sleept !== null && shots.findIndex((x) => x.id === sleept) < i ? " na" : ""}`}
                   style={{ flexGrow: s.duur }}
                   aria-pressed={s.id === shot?.id}
                   aria-label={`Shot ${s.nr}, ${s.bestand}, ${s.tellen} tellen`}
-                  onClick={() => setGekozen(s.id)}
+                  data-shot-index={i}
+                  onClick={() => {
+                    // Na een sleepbeweging is de klik die de browser erachteraan
+                    // stuurt geen keuze.
+                    if (netGesleept.current) {
+                      netGesleept.current = false;
+                      return;
+                    }
+                    setGekozen(s.id);
+                  }}
+                  onPointerDown={(e) => begin(e, s.id)}
                 >
                   {s.thumbnail ? (
-                    <img src={convertFileSrc(s.thumbnail)} alt="" />
+                    <img src={convertFileSrc(s.thumbnail)} alt="" draggable={false} />
                   ) : (
                     <span className="geen-beeld" />
                   )}

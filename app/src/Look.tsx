@@ -17,6 +17,7 @@ import {
   type LookKeuze,
   type Looks,
 } from "./engine";
+import Zijbalk from "./Zijbalk";
 
 /** De schuiven uit het ontwerp, in die volgorde. */
 const SCHUIVEN: { sleutel: keyof Afwerking; label: string }[] = [
@@ -45,16 +46,20 @@ const GROOT_BREEDTE = 960;
 const TEGELIJK = 3;
 /** Wachttijd na de laatste schuifbeweging voor de grote voorvertoning ververst. */
 const RUST_MS = 250;
+/** Wachttijd voor de keuze naar schijf gaat. */
+const BEWAAR_MS = 600;
 
 const pct = (v: number) => Math.round(v * 100);
 
 type Props = {
   project: string | null;
-  /** Legt de keuze vast en gaat naar Exporteren. */
-  naarExporteren: () => void;
+  /** De gewone weg: door naar Bijwerken. De keuze is dan al vastgelegd. */
+  naarBijwerken: () => void;
+  /** Bijwerken overslaan: de video maken en naar Exporteren. */
+  onMaakVideo: () => void;
 };
 
-export default function Look({ project, naarExporteren }: Props) {
+export default function Look({ project, naarBijwerken, onMaakVideo }: Props) {
   const [catalogus, setCatalogus] = useState<Looks | null>(null);
   const [keuze, setKeuze] = useState<LookKeuze | null>(null);
   const [sfeer, setSfeer] = useState("Alles");
@@ -62,6 +67,32 @@ export default function Look({ project, naarExporteren }: Props) {
   const [bezig, setBezig] = useState(false);
   const [tegels, setTegels] = useState<Record<string, string>>({});
   const [fout, setFout] = useState<string | null>(null);
+  const gaat = useRef(false);
+  /** Wat er op schijf staat, als tekst. Zo weet het opslaan hieronder of er
+   *  iets veranderd is. */
+  const bewaard = useRef<string | null>(null);
+
+  // De look vastleggen zodra hij verandert, niet alleen bij de knoppen onderaan.
+  // Wie via de stappenbalk of de knop Exporteren wegging kreeg anders een video
+  // met de look van de vorige keer. Iets trager dan de voorvertoning: een
+  // schuif loslaten is een keuze, eraan slepen nog niet.
+  useEffect(() => {
+    if (project === null || keuze === null) return;
+    const nu = JSON.stringify(keuze);
+    if (bewaard.current === null) {
+      bewaard.current = nu; // de eerste stand komt van schijf
+      return;
+    }
+    if (bewaard.current === nu) return;
+    const t = setTimeout(() => {
+      projectLookZet(project, keuze)
+        .then(() => {
+          bewaard.current = nu;
+        })
+        .catch((e) => setFout(String(e)));
+    }, BEWAAR_MS);
+    return () => clearTimeout(t);
+  }, [project, keuze]);
 
   useEffect(() => {
     if (project === null) return;
@@ -69,6 +100,7 @@ export default function Look({ project, naarExporteren }: Props) {
     setKeuze(null);
     setTegels({});
     setGroot(null);
+    bewaard.current = null;
     projectLooks(project)
       .then((c) => {
         setCatalogus(c);
@@ -171,13 +203,20 @@ export default function Look({ project, naarExporteren }: Props) {
     setKeuze((k) => (k === null ? k : { ...k, afwerking: { ...k.afwerking, [sleutel]: waarde } }));
   }
 
-  async function verder() {
-    if (project === null || keuze === null) return;
+  /** Eerst vastleggen, dan pas verder — welke kant het ook op gaat. Zonder dat
+   *  rendert "overslaan" de video met de look van de vorige keer. */
+  async function verder(dan: () => void) {
+    if (project === null || keuze === null || gaat.current) return;
+    // Een dubbelklik mag de video niet twee keer starten.
+    gaat.current = true;
     try {
       await projectLookZet(project, keuze);
-      naarExporteren();
+      bewaard.current = JSON.stringify(keuze);
+      dan();
     } catch (e) {
       setFout(String(e));
+    } finally {
+      gaat.current = false;
     }
   }
 
@@ -196,7 +235,13 @@ export default function Look({ project, naarExporteren }: Props) {
 
   return (
     <div className="werkvlak">
-      <aside className="zijbalk breed look-lijst">
+      <Zijbalk
+        kant="links"
+        sleutel="look-links"
+        standaard={380}
+        naam="de lookkeuze"
+        klasse="breed look-lijst"
+      >
         <div className="groep">
           <h1 className="stap-titel">Look</h1>
           <p className="stap-uitleg">
@@ -240,7 +285,7 @@ export default function Look({ project, naarExporteren }: Props) {
             </button>
           ))}
         </div>
-      </aside>
+      </Zijbalk>
 
       <main className="podium">
         {fout !== null && (
@@ -266,7 +311,13 @@ export default function Look({ project, naarExporteren }: Props) {
         </span>
       </main>
 
-      <aside className="zijbalk rechts">
+      <Zijbalk
+        kant="rechts"
+        sleutel="look-rechts"
+        standaard={300}
+        naam="het rechterpaneel"
+        klasse="rechts"
+      >
         <div className="groep">
           <div className="schuif-kop">
             <label htmlFor="fx-sterkte">Sterkte</label>
@@ -327,11 +378,27 @@ export default function Look({ project, naarExporteren }: Props) {
             Eén kleurtabel per look: de voorvertoning hierboven en de export gebruiken precies
             dezelfde.
           </span>
-          <button className="knop-groot vol" onClick={() => void verder()} disabled={keuze === null}>
-            Verder: exporteren →
+          <span className="route" aria-hidden="true">
+            <b>2 Stijl</b>→<b className="nu">3 Look</b>→<b>4 Bijwerken</b>→<b>5 Exporteren</b>
+          </span>
+          <button
+            className="knop-groot vol"
+            onClick={() => void verder(naarBijwerken)}
+            disabled={keuze === null}
+          >
+            Verder: shots bijwerken →
           </button>
+          <div className="overslaan">
+            <button
+              className="knop-stil"
+              onClick={() => void verder(onMaakVideo)}
+              disabled={keuze === null}
+            >
+              Bijwerken overslaan — maak direct de video
+            </button>
+          </div>
         </div>
-      </aside>
+      </Zijbalk>
     </div>
   );
 }

@@ -13,7 +13,7 @@ te hoeven trekken. Deze module haalt daarom alles zelf op:
 3. **Python en de pakketten** met `uv sync`, met de Python-installatie én de
    pakketcache binnen de steunmap. Zo is de hele installatie één map en laat
    hij niets achter in `~/.cache`.
-4. **De modelgewichten** (9,4 GB) met hun eigen downloader, zodat de
+4. **De modelgewichten** (10,1 GB) met hun eigen downloader, zodat de
    bestandsnamen kloppen met wat `muziekgen.py` verwacht.
 
 **Elke stap is hervatbaar en niets wordt ooit weggegooid.** Wat er al staat
@@ -37,7 +37,7 @@ import urllib.request
 import zipfile
 from pathlib import Path
 
-from . import paths
+from . import editie, paths
 from .benodigdheden import _pak_uit
 
 # -- wat er opgehaald wordt ------------------------------------------------
@@ -77,8 +77,9 @@ ACESTEP_ZIP_BYTES = 14_000_000
 PYTHON_VERSIE = "3.12"          # hun pyproject eist >=3.11,<3.13
 LM_MODEL = "acestep-5Hz-lm-1.7B"
 
-#: De gewichten, gemeten op de installatie van 03-10-2026.
-GEWICHTEN_BYTES = 9_400_000_000
+#: De gewichten. Gemeten 05-10-2026: 10,09 GB op schijf. Hier stond 9,4 — dat
+#: was dezelfde maat in GiB, en daardoor stond de balk de laatste 0,7 GB op 100%.
+GEWICHTEN_BYTES = 10_100_000_000
 #: Hoeveel er vrij moet zijn voordat we beginnen: 11 GB installatie plus lucht
 #: voor de pakketcache en het uitpakken.
 RUIMTE_NODIG = 15_000_000_000
@@ -128,7 +129,7 @@ def _sleutel() -> str:
     if sys.platform.startswith("win"):
         return "win32-x86_64"
     raise RuntimeError(
-        "Het muziekmodel kan BeatCut alleen op macOS en Windows zelf installeren. "
+        f"Het muziekmodel kan {editie.NAAM} alleen op macOS en Windows zelf installeren. "
         "Gebruik op Linux installer/muziekmodel/installeer-mac.sh als voorbeeld."
     )
 
@@ -485,7 +486,7 @@ def installeer(melder=None, stop_event=None) -> dict:
     gevonden = paths.muziekmodel()
     if gevonden is None:
         raise RuntimeError(
-            f"De installatie in {doel} is klaar maar BeatCut vindt hem niet. "
+            f"De installatie in {doel} is klaar maar {editie.NAAM} vindt hem niet. "
             "Mist er een onderdeel? Draai het opnieuw; wat er staat blijft staan."
         )
     return {"al_aanwezig": False, "pad": str(gevonden), "bytes": _mapgrootte(gevonden)}

@@ -240,7 +240,6 @@ input:focus,select:focus,textarea:focus{border-color:var(--accent-diep);
 .stijlkaart.aan{border-color:var(--accent);background:var(--accent-zacht)}
 .stijlkaart b{display:block;font-size:14px;font-weight:600;margin-bottom:3px}
 .stijlkaart span{display:block;font-size:12px;color:var(--tekst-3);line-height:1.5}
-.stijlkaart em{font-style:normal;font-family:var(--mono);font-size:11px;color:var(--accent)}
 
 /* schuifregelaar voor de duur */
 .schuif{display:flex;align-items:center;gap:12px}
@@ -1562,7 +1561,6 @@ function paneelMontage(){
     <button class="stijlkaart ${s.naam===S.stijl?'aan':''}" data-stijl="${s.naam}">
       <b>${s.titel}</b>
       <span>${s.omschrijving||''}</span>
-      <em>shots ${s.min_shot.toFixed(1)}–${s.max_shot.toFixed(1)}s</em>
     </button>`).join('');
   return `
   <div class="vak"><h3>Stijl</h3>${kaarten}${geheugenRegel()}</div>

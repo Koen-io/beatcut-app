@@ -293,6 +293,29 @@ def geo(
 
 
 @app.command()
+def stijlvoorbeelden(
+    stijl: str = typer.Option("", "--stijl", help="Alleen deze montagestijl"),
+    opnieuw: bool = typer.Option(False, "--opnieuw", help="Bronmateriaal opnieuw maken"),
+) -> None:
+    """Maak de voorbeeldtegels die in stap 2 bij elke montagestijl staan.
+
+    Draai dit na een wijziging in `styles/montage/`: de tegels tonen wat de
+    motor er écht van maakt, dus een stijl die verandert en een tegel die
+    blijft staan is een belofte die niet meer klopt.
+    """
+    from . import stijlvoorbeelden as mod
+
+    gemaakt = mod.maak(alleen=stijl, opnieuw=opnieuw, log=typer.echo)
+    mp4 = [q for q in gemaakt if q.suffix == ".mp4"]
+    totaal = sum(q.stat().st_size for q in gemaakt) / 1024 / 1024
+    typer.echo(f"\n{len(mp4)} tegels in {mod.doelmap()}  ({totaal:.1f} MB)")
+    mist = mod.ontbreekt()
+    if mist:
+        typer.echo(f"Nog zonder voorbeeld: {', '.join(mist)}")
+        raise typer.Exit(code=1)
+
+
+@app.command()
 def rpc() -> None:
     """Draai als sidecar van de app: JSON-RPC over stdin/stdout."""
     from .rpc import draai

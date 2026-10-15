@@ -18,6 +18,11 @@ projecten/*/muziek/
 *.mp4
 *.mov
 *.wav
+# Uitzondering: de voorbeeldtegels bij de montagestijlen horen wél in de repo.
+# Ze gaan mee in de app-bundel — dat is precies de bedoeling, want dan werken
+# ze offline en valt er niets te downloaden. Samen 4 MB, gemaakt door
+# `cve stijlvoorbeelden` uit materiaal dat ffmpeg zelf uitrekent.
+!app/public/stijlvoorbeelden/*.mp4
 *.bin
 .DS_Store
 

@@ -294,6 +294,8 @@ def montage(project: str) -> dict | None:
                 "proxy": str(proxy) if proxy.exists() else None,
                 "reden": b.reden,
                 "vast": b.vast,
+                "kleur": b.kleur,
+                "stabiliseer": b.stabiliseer,
                 "score": score,
                 "signalen": onderdelen,
                 "moet": b.bestand in voork["moet"],
@@ -319,6 +321,8 @@ def montage(project: str) -> dict | None:
         },
         "look": {"id": edl.look.id, "sterkte": edl.look.sterkte},
         "afwerking": asdict(edl.afwerking),
+        # Kleurafstemming tussen clips aan/uit (13-10-2026, `kleurmatch.py`).
+        "afstemmen": edl.afstemmen,
         "effectseed": edl.effectseed,
         "tellen": tellen,
         "maten": maten,
@@ -339,7 +343,15 @@ def montage(project: str) -> dict | None:
             for cid in dict.fromkeys(b.clip for b in edl.video)
         },
         "voorkeuren": voork,
+        # Hoeveel stappen ongedaan/opnieuw kunnen; zie `monteren.py`.
+        "geschiedenis": _geschiedenis(project),
     }
+
+
+def _geschiedenis(project: str) -> dict:
+    from .monteren import stand
+
+    return stand(project)
 
 
 # -- één shot bijwerken ----------------------------------------------------
@@ -379,6 +391,7 @@ def zet_shot(
     snelheid: float | None = None,
     bron_in: float | None = None,
     kader: dict | None = None,
+    stabiliseer: bool | None = None,
 ) -> dict:
     """Pas één shot aan zonder de tijdlijn te verschuiven.
 
@@ -389,10 +402,17 @@ def zet_shot(
     edlpad = pdir / "edl.json"
     if not edlpad.exists():
         raise ValueError("Dit project heeft nog geen montage.")
+    # Een werkdraad (render, spraak) leest edl.json en schrijft hem daarna
+    # terug; een wijziging hier zou dan stil overschreven worden (review
+    # 14-10-2026).
+    bezig = projecten.is_bezig(project)
+    if bezig:
+        raise RuntimeError(f"Er loopt al werk aan dit project: {bezig}")
     edl = EDL.lees(edlpad)
     blok = next((b for b in edl.video if b.id == shot), None)
     if blok is None:
         raise ValueError(f"Shot {shot!r} staat niet in de montage.")
+    voor = (blok.bron_start, blok.bron_lengte)
 
     if snelheid is not None:
         blok.snelheid = max(SNELHEID_MIN, min(SNELHEID_MAX, float(snelheid)))
@@ -405,6 +425,8 @@ def zet_shot(
         # Na `bron_in`: het automatische kader kijkt naar het stuk clip dat dit
         # shot laat zien, en dat is net verschoven.
         blok.vulmodus, blok.kader = _kadering_voor(pdir, edl, blok, kader)
+    if stabiliseer is not None:
+        blok.stabiliseer = bool(stabiliseer)
 
     # Het venster moet binnen de clip blijven: het shot duurt `duur`
     # tijdlijnseconden en eet daarvoor `duur * snelheid` seconden bron op.
@@ -423,9 +445,24 @@ def zet_shot(
         ruimte = clipduur - blok.bron_lengte
         blok.bron_start = round(max(0.0, min(blok.bron_start, ruimte)), 3)
 
+    # Wat met de hand bijgesteld is, is handwerk: `vast` zodat de interface
+    # weet dat "opnieuw regisseren" iets weggooit (13-10-2026).
+    blok.vast = True
+    if (blok.bron_start, blok.bron_lengte) != voor:
+        # Een ander stuk bron heeft een andere balans: afstemming opnieuw.
+        # Ook bij een andere snelheid, want die verschuift het bron-einde
+        # (review 14-10-2026). En de woorden liggen dan op andere tijden.
+        from .kleurmatch import stem_af
+        from .spraak import herleg
+
+        stem_af(edl, _lees(pdir / "analysis.json") or {})
+        herleg(edl, pdir, alleen_cache=True)
+
     # Geen `pak_aan()`, geen `op_framerooster()`: de tijden komen uit de
     # muziek en blijven exact zoals ze stonden.
-    edl.schrijf(edlpad)
+    from .monteren import schrijf_met_stap
+
+    schrijf_met_stap(pdir, edl)
     return montage(project)
 
 
@@ -440,8 +477,13 @@ def regisseer(
     montagestijl: str | None = None,
     vorm: str | None = None,
     duur: float | None = None,
+    titel: str | None = None,
 ) -> dict:
     """Alleen de regie opnieuw: nieuwe shotkeuze, geen render.
+
+    `titel` is de titelstijl. Zonder blijft de stijl die er lag; zo raakt een
+    montage bij "opnieuw regisseren" zijn titels niet meer kwijt tot de
+    eerstvolgende render (05-10-2026).
 
     Respecteert wat de gebruiker zei: clips op "nooit" komen er niet in, clips
     op "moet" krijgen voorrang bij de keuze. Duurt tienden van seconden, want
@@ -455,6 +497,23 @@ def regisseer(
         raise ValueError("Dit project is nog niet geanalyseerd.")
 
     bestaand = EDL.lees(pdir / "edl.json") if (pdir / "edl.json").exists() else None
+    # Nieuwe muziek betekent een ander snijraster; `maak_video` meet dat ook
+    # eerst na. Zonder deze regel regisseert de geleide route (Stijl → Look)
+    # op het raster van het vorige nummer.
+    from . import montage as montage_mod
+
+    if (
+        montage_mod._huidige_muziek(project) is not None
+        and montage_mod.muziekstand(project) is None
+    ):
+        montage_mod.analyseer_muziek(project)
+        analyse = _lees(pdir / "analysis.json") or analyse
+    if titel is None and bestaand is not None:
+        titel = next(
+            (str((o.inhoud or {}).get("titelstijl")) for o in bestaand.overlay
+             if o.soort == "titel20" and (o.inhoud or {}).get("titelstijl")),
+            None,
+        )
     if stijl is None:
         stijl = bestaand.stijl if bestaand else analyse.get("stijl", "actie")
     if montagestijl is None:
@@ -494,10 +553,20 @@ def regisseer(
         # De brief hoort mee: na "opnieuw regisseren" is dít de montage die bij
         # de huidige keuze hoort, en mag "Exporteer op volle kwaliteit" hem
         # niet nog eens overdoen. Zie `montage.regie_nodig()`.
-        from . import montage as montage_mod
+        from . import titelstijl
 
+        titelstijl.zet_op(voorstel.edl, project, titel or titelstijl.standaard())
         voorstel.edl.brief = montage_mod.brief_van(stijl, vorm, duur, montagestijl)
-        voorstel.edl.schrijf(pdir / "edl.json")
+        # Staat spraak aan, dan horen ondertitels en clipgeluid op de nieuwe
+        # shots — anders verdwenen ze bij elke "opnieuw regisseren".
+        from . import spraak
+
+        spraak.herleg(voorstel.edl, pdir)
+        # Opnieuw regisseren is de grootste stap van allemaal; juist die moet
+        # terug te draaien zijn (Cmd+Z na "Toch opnieuw").
+        from .monteren import schrijf_met_stap
+
+        schrijf_met_stap(pdir, voorstel.edl)
     finally:
         projecten.zet_bezig(project, None)
 
@@ -514,6 +583,41 @@ def regisseer(
         "uitleg": voorstel.uitleg,
         "waarschuwingen": waarschuwingen,
     }
+
+
+def zet_afstemmen(project: str, aan: bool) -> dict:
+    """Kleurafstemming tussen clips aan of uit. De getallen blijven staan."""
+    pdir = paths.PROJECTEN / project
+    edlpad = pdir / "edl.json"
+    if not edlpad.exists():
+        raise ValueError("Dit project heeft nog geen montage.")
+    bezig = projecten.is_bezig(project)
+    if bezig:
+        raise RuntimeError(f"Er loopt al werk aan dit project: {bezig}")
+    edl = EDL.lees(edlpad)
+    if edl.afstemmen != bool(aan):
+        edl.afstemmen = bool(aan)
+        from .monteren import schrijf_met_stap
+
+        schrijf_met_stap(pdir, edl)
+    return montage(project)
+
+
+def zet_titelstijl(project: str, titel: str) -> None:
+    """Een andere titelstijl op de montage die er ligt. De shots blijven staan."""
+    from . import titelstijl
+
+    pad = paths.project_dir(project) / "edl.json"
+    if not pad.exists():
+        return
+    # Niets doen als hij er al staat, en afblijven als er gerenderd wordt: de
+    # werkdraad leest en schrijft `edl.json` op dat moment zelf, en die zet de
+    # titelstijl bij zijn eigen start al.
+    if titelstijl.gekozen(project) == titel or projecten.is_bezig(project):
+        return
+    edl = EDL.lees(pad)
+    titelstijl.zet_op(edl, project, titel)
+    edl.schrijf(pad)
 
 
 def _uitgesloten_ids(project: str) -> list[str]:

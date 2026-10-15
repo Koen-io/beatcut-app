@@ -17,11 +17,13 @@ import { convertFileSrc } from "@tauri-apps/api/core";
 import { lookLut, type Montagestand, type Shot } from "../engine";
 import { Klok } from "./klok";
 import { Blokdecoder, Proxy, brontijdVan, frames } from "./demux";
+import { ProxyCache } from "./proxycache";
 import { maakDoek, type Doek, type Inpassing } from "./tekenen";
 import { afwerkingUitLijst } from "./params";
 import { identiteit, leesCube, type Lut } from "./lut";
 import Titels from "./Titels";
 import {
+  EENHEID,
   kaderPas,
   kaderPuntOp,
   kaderVul,
@@ -31,6 +33,14 @@ import {
   type Stand,
 } from "./uniforms";
 import { duurTekst } from "../format";
+import { scrubSprong } from "./toetsen";
+
+/** De kanaalversterking van een shot, of de eenheid als afstemmen uit staat. */
+function kleurVan(shot: Shot, aan: boolean): [number, number, number] {
+  const k = shot.kleur;
+  if (!aan || !k) return EENHEID;
+  return [k.r ?? 1, k.g ?? 1, k.b ?? 1];
+}
 
 /** Zoveel seconden vóór een snede wordt het volgende blok al opgezet. Het
  *  decoderen van de eerste frames kost tijd; zonder dit hapert elke snede. */
@@ -83,7 +93,13 @@ function sleutelVan(shot: Shot, proxy: string | null): string {
   ].join("|");
 }
 
-type Inzet = { sleutel: string; dec: Blokdecoder | null };
+type Inzet = { sleutel: string; pad: string; dec: Blokdecoder | null };
+
+/** Plafond voor ingelezen proxies: ~600 MB of 16 stuks, wat het eerst komt.
+ *  Een 540p-proxy is 5–30 MB; dit houdt een montage over 100 clips onder
+ *  controle zonder dat een shot uit een al geladen clip hoeft te wachten. */
+const PROXY_BYTES = 600 * 1024 * 1024;
+const PROXY_AANTAL = 16;
 
 type Props = {
   stand: Montagestand;
@@ -170,9 +186,9 @@ export default function Speler({ stand, spatie = true, onTijd, zoekNaar }: Props
   const canvas = useRef<HTMLCanvasElement | null>(null);
   const klok = useRef<Klok | null>(null);
   const doek = useRef<Doek | null>(null);
-  /** Eén ingelezen proxy per clip-id, zodat een tweede shot uit dezelfde clip
-   *  niets meer hoeft in te lezen. */
-  const proxies = useRef(new Map<string, Promise<Proxy>>());
+  /** Ingelezen proxies, met een plafond: een tweede shot uit dezelfde clip
+   *  hoeft niets in te lezen, maar wat lang niet gebruikt is gaat weg. */
+  const proxies = useRef(new ProxyCache<Proxy>(PROXY_BYTES, PROXY_AANTAL));
   /** Eén decoder per shot-id, voor het huidige, het vorige en het volgende blok.
    *  `sleutel` is de vingerafdruk van de configuratie waarmee hij gemaakt is;
    *  wijzigt die, dan moet de decoder weg (zie `zetKlaar`). */
@@ -206,11 +222,10 @@ export default function Speler({ stand, spatie = true, onTijd, zoekNaar }: Props
 
   const proxyVoor = useCallback(
     (pad: string): Promise<Proxy> => {
-      const bestaand = proxies.current.get(pad);
-      if (bestaand) return bestaand;
-      const nieuw = Proxy.lees(pad);
-      proxies.current.set(pad, nieuw);
-      return nieuw;
+      // Wat een decoder in gebruik heeft mag niet opgeruimd worden.
+      const vast = new Set<string>([pad]);
+      for (const inzet of decoders.current.values()) vast.add(inzet.pad);
+      return proxies.current.haal(pad, () => Proxy.lees(pad), vast);
     },
     [],
   );
@@ -230,7 +245,7 @@ export default function Speler({ stand, spatie = true, onTijd, zoekNaar }: Props
       staand?.dec?.sluit();
       // De plek bezetten met `dec: null` houdt een tweede aanroep tegen
       // terwijl de eerste nog laadt.
-      decoders.current.set(shot.id, { sleutel, dec: null });
+      decoders.current.set(shot.id, { sleutel, pad, dec: null });
       const mijn = sessie.current;
       void proxyVoor(pad)
         .then((pr) => {
@@ -240,6 +255,7 @@ export default function Speler({ stand, spatie = true, onTijd, zoekNaar }: Props
           if (decoders.current.get(shot.id)?.sleutel !== sleutel) return;
           decoders.current.set(shot.id, {
             sleutel,
+            pad,
             dec: new Blokdecoder(pr, shot.bron_in, stukkenVan(shot), shot.bevriezen),
           });
         })
@@ -279,7 +295,7 @@ export default function Speler({ stand, spatie = true, onTijd, zoekNaar }: Props
       sessie.current++;
       for (const d of decoders.current.values()) d.dec?.sluit();
       decoders.current.clear();
-      proxies.current.clear();
+      proxies.current.leeg();
       doek.current?.sluit();
       doek.current = null;
       k.sluit();
@@ -394,6 +410,10 @@ export default function Speler({ stand, spatie = true, onTijd, zoekNaar }: Props
           stand.afwerking?.filmtrilling ?? 0,
           stand.afwerking?.kleurrand ?? 0,
         ],
+        // Kleurafstemming per shot (`VideoBlok.kleur`); zonder of uitgezet
+        // blijft het de eenheid en verandert er niets aan het beeld.
+        kleurA: kleurVan(shotA, stand.afstemmen ?? true),
+        kleurB: kleurVan(nu, stand.afstemmen ?? true),
       };
       // Tijdens een overgang hoort het inkomende beeld in slot B; staat er nog
       // niets, dan houdt A het beeld vast in plaats van zwart te worden.
@@ -655,9 +675,22 @@ export default function Speler({ stand, spatie = true, onTijd, zoekNaar }: Props
         </button>
         <div
           className="scrub"
+          role="slider"
+          tabIndex={0}
+          aria-label="Positie in de video"
+          aria-valuemin={0}
+          aria-valuemax={Math.round(duur * 1000) / 1000}
+          aria-valuenow={Math.round(tijd * 1000) / 1000}
+          aria-valuetext={duurTekst(tijd)}
           onPointerDown={(e) => {
             const vak = e.currentTarget.getBoundingClientRect();
             zoek(((e.clientX - vak.left) / vak.width) * duur);
+          }}
+          onKeyDown={(e) => {
+            const sprong = scrubSprong(e.key, e.shiftKey, stand.fps, duur, tijd);
+            if (sprong === null) return;
+            e.preventDefault();
+            zoek(sprong);
           }}
         >
           <div className="scrub-spoor" />

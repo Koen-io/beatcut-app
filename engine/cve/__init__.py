@@ -4,4 +4,4 @@ Alles wat een computer kan meten, meet de computer.
 Het model beslist alleen over smaak.
 """
 
-__version__ = "0.3.2"
+__version__ = "0.4.0"

@@ -1,12 +1,23 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
+import { titelBinnenLaag } from "./titelbereik";
 // @ts-expect-error type error without @types/node package
 import process from "node:process";
+// @ts-expect-error type error without @types/node package
+import path from "node:path";
 const host = process.env.TAURI_DEV_HOST;
+
+// Welke editie er gebouwd wordt (app/edities/LEESMIJ.md). `@editie` wijst
+// naar die map; alleen wat de interface daaruit importeert komt in de bundel,
+// en de andere edities blijven er helemaal buiten.
+const editie = process.env.BEATCUT_EDITIE || "beatcut";
+const editieMap = path.resolve(process.cwd(), "edities", editie);
 
 // https://vite.dev/config/
 export default defineConfig(() => ({
-  plugins: [react()],
+  plugins: [react(), titelBinnenLaag()],
+
+  resolve: { alias: { "@editie": editieMap } },
 
   // Vite options tailored for Tauri development and only applied in `tauri dev` or `tauri build`
   //

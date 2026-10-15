@@ -15,6 +15,15 @@
 # Zie installer/LEESMIJ.md voor de exacte gh-commando's. Zonder die twee faalt
 # `tauri build` omdat createUpdaterArtifacts aan staat — en dat is goed: een
 # release zonder handtekening werkt de bestaande installaties niet bij.
+#
+# Een derde secret is er voor de tweede editie, de P-ALV Movie Maker
+# (app/edities/LEESMIJ.md):
+#   PALV_RELEASES_TOKEN   fijnmazig GitHub-token, alleen lezen op
+#                         Koen-io/P-ALV-Movie-Maker-Releases (privé)
+# Daarmee haalt de bouw het merkpakket (logo, kleuren, iconen) op — dat staat
+# bewust niet in deze publieke repo — en hetzelfde token gaat de app in zodat
+# hij zijn updates uit die privé-repo kan halen. Ontbreekt het secret, dan
+# wordt alleen BeatCut gebouwd en zegt de job dat netjes.
 
 name: BeatCut 2
 
@@ -61,6 +70,7 @@ jobs:
     env:
       TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
       TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+      PALV_RELEASES_TOKEN: ${{ secrets.PALV_RELEASES_TOKEN }}
 
     steps:
       - uses: actions/checkout@v4
@@ -186,6 +196,22 @@ jobs:
           cargo test --release --manifest-path compositor/Cargo.toml
           --target ${{ matrix.doel }} -- --test-threads=1
 
+      # --------------------------------------------------------------- whisper
+      # Voor de ondertitels (15-10-2026): een statische whisper-cli gaat mee
+      # als resource (tauri.conf.json → engine/whisper/); het model haalt de
+      # app zelf op. Op Windows nog niet gebouwd: daar blijft de map leeg en
+      # zegt de spraakkaart eerlijk dat spraakherkenning ontbreekt. De map
+      # moet wél bestaan, anders weigert Tauri de resource.
+      - name: whisper-cli bouwen
+        shell: bash
+        run: |
+          mkdir -p installer/uit/whisper
+          if [ "$RUNNER_OS" = "macOS" ]; then
+            installer/whisper/bouw-mac.sh
+          else
+            echo "nog geen whisper op Windows" > installer/uit/whisper/LEESMIJ.txt
+          fi
+
       # ---------------------------------------------------------------- engine
       - name: Engine-afhankelijkheden
         shell: bash
@@ -243,6 +269,61 @@ jobs:
           # engine.rs ze ook in de installatie zoekt.
           & "app/src-tauri/target/${{ matrix.doel }}/release/beatcut.exe" --zelftest
 
+      # ---------------------------------------------------------------- P-ALV
+      # Tweede editie: dezelfde engine en dezelfde app, ander merk. Het
+      # merkpakket komt uit de privé-releases-repo (release `merk`), zodat het
+      # logo nooit in deze publieke repo staat. Zelfde target-map: de crate is
+      # dezelfde, alleen de config (identifier, naam, iconen) en het ingebakken
+      # token verschillen, en cargo bouwt daarop precies het nodige opnieuw.
+      - name: Merkpakket P-ALV ophalen
+        id: palv
+        if: env.PALV_RELEASES_TOKEN != ''
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.PALV_RELEASES_TOKEN }}
+        run: |
+          mkdir -p /tmp/merk
+          gh release download merk --repo Koen-io/P-ALV-Movie-Maker-Releases \
+            --pattern merkpakket-p-alv.zip -D /tmp/merk --clobber
+          rm -rf app/edities/p-alv
+          unzip -q -o /tmp/merk/merkpakket-p-alv.zip -d app/edities/
+          test -f app/edities/p-alv/editie.json
+          test -f app/edities/p-alv/tauri.conf.json
+          echo "aanwezig=ja" >> "$GITHUB_OUTPUT"
+
+      - name: Geen P-ALV-editie in deze bouw
+        if: env.PALV_RELEASES_TOKEN == ''
+        run: echo "::notice::PALV_RELEASES_TOKEN ontbreekt — alleen BeatCut gebouwd"
+
+      - name: Tauri bouwen (P-ALV Movie Maker)
+        if: steps.palv.outputs.aanwezig == 'ja'
+        working-directory: app
+        env:
+          BEATCUT_EDITIE: p-alv
+          BEATCUT_UPDATE_TOKEN: ${{ secrets.PALV_RELEASES_TOKEN }}
+        run: >-
+          npm run tauri -- build --config edities/p-alv/tauri.conf.json
+          --target ${{ matrix.doel }} --bundles ${{ matrix.bundels }}
+
+      - name: Zelftest van de P-ALV-app
+        if: steps.palv.outputs.aanwezig == 'ja' && runner.os == 'macOS'
+        env:
+          BEATCUT_GEEN_DEV: "1"
+        run: |
+          app="app/src-tauri/target/${{ matrix.doel }}/release/bundle/macos/P-ALV Movie Maker.app"
+          "$app/Contents/MacOS/beatcut" --zelftest
+          # Kijkt de app naar zijn eigen steunmap en niet naar die van BeatCut?
+          "$app/Contents/MacOS/beatcut" --zelftest | grep -q "P-ALV Movie Maker" \
+            || { echo "::error::de P-ALV-app draait niet onder zijn eigen naam"; exit 1; }
+
+      - name: Zelftest van de P-ALV-app (Windows)
+        if: steps.palv.outputs.aanwezig == 'ja' && runner.os == 'Windows'
+        shell: pwsh
+        env:
+          BEATCUT_GEEN_DEV: "1"
+        run: |
+          & "app/src-tauri/target/${{ matrix.doel }}/release/beatcut.exe" --zelftest
+
       # ------------------------------------------------------------- artefacten
       - name: Bestanden verzamelen en controlegetallen
         id: pak
@@ -255,15 +336,17 @@ jobs:
           arch=${{ matrix.naam }}
           arch=${arch##*-}
 
+          # Op naam, niet met een kale *: sinds de P-ALV-editie staan er twee
+          # dmg's (of twee setup.exe's) in dezelfde bundle-map.
           if [ "$RUNNER_OS" = "macOS" ]; then
-            cp "$bundel"/dmg/*.dmg "$uit/BeatCut-$versie-$arch.dmg"
+            cp "$bundel"/dmg/BeatCut_*.dmg "$uit/BeatCut-$versie-$arch.dmg"
             # De updaterbundel heet op elke Mac hetzelfde (BeatCut.app.tar.gz);
             # in één release zouden arm64 en x64 elkaar overschrijven.
             cp "$bundel"/macos/BeatCut.app.tar.gz     "$uit/BeatCut-$versie-$arch.app.tar.gz"
             cp "$bundel"/macos/BeatCut.app.tar.gz.sig "$uit/BeatCut-$versie-$arch.app.tar.gz.sig"
             echo "update_bestand=BeatCut-$versie-$arch.app.tar.gz" >> "$GITHUB_OUTPUT"
           else
-            setup=$(ls "$bundel"/nsis/*-setup.exe)
+            setup=$(ls "$bundel"/nsis/BeatCut_*-setup.exe)
             cp "$setup"       "$uit/BeatCut-setup-$versie-$arch.exe"
             cp "$setup.sig"   "$uit/BeatCut-setup-$versie-$arch.exe.sig"
             echo "update_bestand=BeatCut-setup-$versie-$arch.exe" >> "$GITHUB_OUTPUT"
@@ -273,6 +356,26 @@ jobs:
           som() { if command -v sha256sum >/dev/null; then sha256sum "$@"; else shasum -a 256 "$@"; fi; }
           ( cd "$uit" && som ./* > SHA256SUMS && cat SHA256SUMS )
           echo "versie=$versie" >> "$GITHUB_OUTPUT"
+
+          # De P-ALV-editie, als die gebouwd is. Zonder spaties in de namen:
+          # die gaan in latest.json en in een URL.
+          if [ "${{ steps.palv.outputs.aanwezig }}" = "ja" ]; then
+            uitp=uit-palv
+            mkdir -p "$uitp"
+            naam="P-ALV-Movie-Maker"
+            if [ "$RUNNER_OS" = "macOS" ]; then
+              cp "$bundel"/dmg/"P-ALV Movie Maker"_*.dmg          "$uitp/$naam-$versie-$arch.dmg"
+              cp "$bundel"/macos/"P-ALV Movie Maker.app.tar.gz"     "$uitp/$naam-$versie-$arch.app.tar.gz"
+              cp "$bundel"/macos/"P-ALV Movie Maker.app.tar.gz.sig" "$uitp/$naam-$versie-$arch.app.tar.gz.sig"
+              echo "palv_update_bestand=$naam-$versie-$arch.app.tar.gz" >> "$GITHUB_OUTPUT"
+            else
+              setup=$(ls "$bundel"/nsis/"P-ALV Movie Maker"_*-setup.exe)
+              cp "$setup"     "$uitp/$naam-setup-$versie-$arch.exe"
+              cp "$setup.sig" "$uitp/$naam-setup-$versie-$arch.exe.sig"
+              echo "palv_update_bestand=$naam-setup-$versie-$arch.exe" >> "$GITHUB_OUTPUT"
+            fi
+            ( cd "$uitp" && som ./* > SHA256SUMS && cat SHA256SUMS )
+          fi
 
       - uses: actions/upload-artifact@v4
         with:
@@ -297,6 +400,32 @@ jobs:
           retention-days: 1
           if-no-files-found: error
 
+      - name: P-ALV-artefacten
+        if: steps.palv.outputs.aanwezig == 'ja'
+        uses: actions/upload-artifact@v4
+        with:
+          name: palv-${{ matrix.naam }}
+          path: uit-palv/*
+          retention-days: 1
+          if-no-files-found: error
+
+      - name: P-ALV-handtekening apart bewaren
+        if: steps.palv.outputs.aanwezig == 'ja'
+        shell: bash
+        run: |
+          mkdir -p palv-sig
+          cp "uit-palv/${{ steps.pak.outputs.palv_update_bestand }}.sig" palv-sig/
+          echo "${{ steps.pak.outputs.palv_update_bestand }}" > palv-sig/bestandsnaam.txt
+
+      - name: P-ALV-handtekening
+        if: steps.palv.outputs.aanwezig == 'ja'
+        uses: actions/upload-artifact@v4
+        with:
+          name: palv-sig-${{ matrix.naam }}
+          path: palv-sig/*
+          retention-days: 1
+          if-no-files-found: error
+
   latest:
     # latest.json wijst de updater naar de bestanden van déze release. Hij gaat
     # er dus van uit dat release.sh ze onder dezelfde tag publiceert.
@@ -309,6 +438,14 @@ jobs:
         with:
           pattern: sig-*
           path: sig
+
+      # Niets gevonden is geen fout: zonder PALV_RELEASES_TOKEN is er geen
+      # P-ALV-bouw en dus ook geen handtekening.
+      - uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          pattern: palv-sig-*
+          path: palv-sig
 
       - name: latest.json maken
         shell: bash
@@ -362,5 +499,60 @@ jobs:
         with:
           name: latest-json
           path: latest.json
+          retention-days: 1
+          if-no-files-found: error
+
+      # Voor de privé-repo kunnen hier nog geen URL's in: een asset in een
+      # privé-release heeft een API-adres met een nummer dat pas bestaat ná
+      # het uploaden. `release.sh` vult `asset:<bestandsnaam>` daarom in zodra
+      # de bestanden staan, en zet dán pas latest.json erbij.
+      - name: latest.json voor P-ALV maken
+        if: hashFiles('palv-sig/**/bestandsnaam.txt') != ''
+        shell: bash
+        env:
+          TAG: ${{ github.ref_type == 'tag' && github.ref_name || '' }}
+        run: |
+          versie=$(node -p "require('./app/src-tauri/tauri.conf.json').version")
+          tag="${TAG:-v$versie}"
+          declare -A platform=(
+            [palv-sig-macos-arm64]=darwin-aarch64
+            [palv-sig-macos-x64]=darwin-x86_64
+            [palv-sig-windows-x64]=windows-x86_64
+          )
+          mkdir -p palv
+          echo '{}' > palv/latest.json
+          for map in "${!platform[@]}"; do
+            [ -f "palv-sig/$map/bestandsnaam.txt" ] || { echo "::error::$map ontbreekt"; exit 1; }
+            bestand=$(cat "palv-sig/$map/bestandsnaam.txt")
+            handtekening=$(cat "palv-sig/$map/$bestand.sig")
+            export P="${platform[$map]}" U="asset:$bestand" S="$handtekening"
+            node -e '
+              const fs = require("fs");
+              const j = JSON.parse(fs.readFileSync("palv/latest.json", "utf8"));
+              j.platforms = j.platforms || {};
+              j.platforms[process.env.P] = { url: process.env.U, signature: process.env.S };
+              fs.writeFileSync("palv/latest.json", JSON.stringify(j, null, 2));
+            '
+          done
+          export V="$versie" T="$tag"
+          node -e '
+            const fs = require("fs");
+            const j = JSON.parse(fs.readFileSync("palv/latest.json", "utf8"));
+            const uit = {
+              version: process.env.V,
+              notes: "P-ALV Movie Maker " + process.env.V,
+              pub_date: new Date().toISOString(),
+              platforms: j.platforms,
+            };
+            fs.writeFileSync("palv/latest.json", JSON.stringify(uit, null, 2));
+          '
+          cat palv/latest.json
+
+      - name: P-ALV latest.json bewaren
+        if: hashFiles('palv-sig/**/bestandsnaam.txt') != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: latest-palv-json
+          path: palv/latest.json
           retention-days: 1
           if-no-files-found: error

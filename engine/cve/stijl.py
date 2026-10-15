@@ -45,11 +45,6 @@ class Ritme:
     #   sneller  alleen een kleine bonus op beweging; het tempo zelf staat in
     #            de montagestijl en verandert hier niet van
     drops: str = "sneller"
-    # Bedoeld om openings- en slotshot langer te laten duren dan de rest, maar
-    # nooit gebouwd: niets leest deze twee, al sinds 0.1.0. Zie brein-taak
-    # 20261004-031546 — weghalen is een eigen besluit, niet dat van deze opruiming.
-    opening_extra: float = 0.0
-    slot_extra: float = 0.0
 
 
 @dataclass
@@ -64,6 +59,9 @@ class Gewichten:
     gezicht: float = 0.15
     te_donker: float = -0.30
     geluid: float = 0.0
+    audiopiek: float = 0.15
+    actiepiek: float = 0.10
+    nieuwheid: float = 0.10
     lengte_voorkeur: float = 0.06
     consistentie: float = 0.35
 
@@ -203,8 +201,6 @@ def laad(naam: str, styles_map: Path, *, met_geheugen: bool = True) -> Stijl:
         min_shot=_getal(r, "min_shot", standaard.min_shot),
         max_shot=_getal(r, "max_shot", standaard.max_shot),
         drops=r.get("drops", standaard.drops),
-        opening_extra=_getal(r, "opening_extra", standaard.opening_extra),
-        slot_extra=_getal(r, "slot_extra", standaard.slot_extra),
     )
 
     bw = blokken.get("beweging", {})

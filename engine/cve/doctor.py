@@ -10,7 +10,7 @@ import subprocess
 import sys
 from dataclasses import dataclass
 
-from . import paths
+from . import editie, paths
 
 
 @dataclass
@@ -54,7 +54,7 @@ def checks() -> list[Check]:
                 naam,
                 p is not None,
                 f"{_eerste_regel(_run([str(p), '-version']))} · {p}" if p
-                else "niet gevonden — BeatCut haalt het op bij de eerste start",
+                else f"niet gevonden — {editie.NAAM} haalt het op bij de eerste start",
             )
         )
 
@@ -118,7 +118,7 @@ def checks() -> list[Check]:
         Check(
             "whisper-model",
             wm is not None,
-            wm.name if wm else "wordt opgehaald bij de eerste ondertiteling (1,5 GB)",
+            wm.name if wm else "nog niet opgehaald (574 MB) — knop op de spraakkaart in Bijwerken",
             # Geen blokkade: zonder model werkt alles behalve ondertitels, en
             # in een verse installatie is hij er per definitie nog niet.
             vereist=False,

@@ -26,8 +26,6 @@ consistentie:      0.50   # het onderwerp moet het hele shot in beeld blijven
 min_shot:          4.0    # alleen de terugval als er geen muziek ligt
 max_shot:          9.0    # informatief; de regisseur leest dit niet
 drops:             beeld
-opening_extra:     1.5    # nog niet gebouwd; niets leest dit
-slot_extra:        2.0    # nog niet gebouwd; niets leest dit
 ```
 
 ## Beweging in het beeld

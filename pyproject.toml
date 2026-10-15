@@ -1,6 +1,6 @@
 [project]
 name = "cve"
-version = "0.3.2"
+version = "0.4.0"
 description = "BeatCut Video Editor - AI-gestuurde lokale video-editor"
 requires-python = ">=3.12,<3.13"
 dependencies = [
@@ -18,6 +18,8 @@ dependencies = [
     "pydantic>=2.9",
     "rich>=13.9",
     "typer>=0.15",
+    # Verwijderen gaat naar de prullenbak, nooit hard weg (engine/cve/opruimen.py).
+    "send2trash>=1.8.3",
 ]
 
 [project.optional-dependencies]

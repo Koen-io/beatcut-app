@@ -22,9 +22,13 @@ from .analyze import beeld as beeld_mod
 from .analyze import muziek as muziek_mod
 from .analyze import segmenten as seg_mod
 from .analyze import telemetrie as telemetrie_mod
+from .doorvoer import Meter
+
+FASE = "analyseren"
+AFRONDEN = "afronden"
 
 
-def _analyseer_een(args: tuple[str, str]) -> tuple[str, dict]:
+def _analyseer_een(args: tuple[str, str, str]) -> tuple[str, dict]:
     """Draait in een apart proces: OpenCV is CPU-werk en laat de GIL niet los."""
     clip_id, proxy_pad, bron_pad = args
     proxy = Path(proxy_pad)
@@ -54,6 +58,7 @@ def _analyseer_een(args: tuple[str, str]) -> tuple[str, dict]:
             "vlakheid": b.vlakheid,
             "hashes": b.hashes,
             "kleur": [list(k) for k in b.kleur],
+            "balans": [list(k) for k in b.balans],
             # Waar het onderwerp staat, per meetmoment. Hiermee snijdt de
             # regisseur een liggende clip in een staand canvas om het
             # onderwerp heen in plaats van door het midden - zie cve/kader.py.
@@ -131,6 +136,7 @@ def analyseer(
     met_clip_audio: bool = True,
     stijl: str = "actie",
     log=print,
+    meter: Meter | None = None,
 ) -> dict:
     pdir = paths.project_dir(project)
     ingest_pad = pdir / "ingest.json"
@@ -147,6 +153,12 @@ def analyseer(
     ]
     log(f"Beeldanalyse op {len(taken)} clips ({workers} processen)...")
 
+    # De tijdschatting rekent in seconden bronvideo, niet in bestanden; de
+    # analyse leest elke clip van voor naar achter, dus de duur is de maat.
+    duren = {c["id"]: float(c["duur"]) for c in ing["clips"]}
+    if meter is not None:
+        meter.plan(FASE, sum(duren.values()))
+
     resultaten: dict[str, dict] = {}
     with ProcessPoolExecutor(max_workers=workers) as pool:
         futures = {pool.submit(_analyseer_een, t): t[0] for t in taken}
@@ -155,7 +167,17 @@ def analyseer(
             cid, data = f.result()
             resultaten[cid] = data
             klaar += 1
+            if meter is not None:
+                meter.boek(FASE, duren.get(cid, 0.0))
             log(f"  [{klaar}/{len(taken)}] {cid}  {len(data['shots'])} shot(s)")
+
+    # Wat hierna komt — clipaudio, scenes, muziekanalyse, segmenten — is geen
+    # kleine staart: op de 21 testclips 2,9 van de 36 seconden. Zat het niet in
+    # de schatting, dan stond de balk op 100 % terwijl er nog drie seconden
+    # liepen (gemeten 04-10-2026). Het is niet per clip te volgen, dus het is
+    # één fase die in één keer afboekt; het tarief komt uit de vorige run.
+    if meter is not None:
+        meter.plan(AFRONDEN, sum(duren.values()))
 
     if met_clip_audio:
         log("Audio per clip...")
@@ -190,6 +212,13 @@ def analyseer(
                 "reeks": r["reeks"],
             }
         )
+
+    # Hoogtepunten: geluidspieken, actiepieken en nieuwheid per clip. Leest de
+    # wav's die hierboven al gemaakt zijn; kost op 21 clips een halve seconde.
+    log("Hoogtepunten meten...")
+    from .analyze import hoogtepunten as hp_mod
+
+    hp_mod.verrijk(clips, cache)
 
     _groepeer_scenes(clips, log=log)
 
@@ -234,8 +263,17 @@ def analyseer(
         for s in schoon
     ]
 
+    if meter is not None:
+        meter.boek(AFRONDEN, sum(duren.values()))
+
     uit = pdir / "analysis.json"
-    uit.write_text(json.dumps(data, indent=1, ensure_ascii=False), encoding="utf-8")
+    # Atomair, zoals `EDL.schrijf`: de app leest dit bestand uit een andere
+    # draad (montage, bijwerken, `is_geanalyseerd`) terwijl de analyse loopt.
+    # Een `write_text` kapt eerst af en vult dan — in dat venster las een
+    # lezer een half bestand, of zag `is_geanalyseerd` een lege analyse.
+    deel = uit.with_name(uit.name + ".deel")
+    deel.write_text(json.dumps(data, indent=1, ensure_ascii=False), encoding="utf-8")
+    deel.replace(uit)
     log(f"\nGeschreven: {uit}  ({uit.stat().st_size / 1024:.0f} KB)")
     return data
 

@@ -182,7 +182,7 @@ impl Proef {
     }
 
     /// Eén frame zoals de speler het zou tekenen, als RGBA8.
-    fn beeld(&self, a: &[u8], b: &[u8], u: &[f32; 36]) -> Vec<u8> {
+    fn beeld(&self, a: &[u8], b: &[u8], u: &[f32; 44]) -> Vec<u8> {
         self.schrijf(&self.a, a);
         self.schrijf(&self.b, b);
         let uni = self.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
@@ -284,12 +284,15 @@ fn kader_pas(bron: f32, canvas: f32) -> [f32; 4] {
     [w, h, (1.0 - w) / 2.0, (1.0 - h) / 2.0]
 }
 
-/// De negen vec4's van `struct Uniforms`, zoals `schrijfUniforms()` ze vult.
-fn uniformen(soort: u32, meng: f32, vulmodus: f32) -> [f32; 36] {
+/// De elf vec4's van `struct Uniforms`, zoals `schrijfUniforms()` ze vult.
+fn uniformen(soort: u32, meng: f32, vulmodus: f32) -> [f32; 44] {
     let canvas = B as f32 / H as f32;
     let vul = kader_vul(BRON_VERHOUDING, canvas);
     let pas = kader_pas(BRON_VERHOUDING, canvas);
-    let mut u = [0f32; 36];
+    let mut u = [0f32; 44];
+    for i in 36..44 {
+        u[i] = 1.0; // kleurA, kleurB: versterking 1
+    }
     u[0..4].copy_from_slice(&vul);
     u[4..8].copy_from_slice(&vul);
     u[8..12].copy_from_slice(&pas);

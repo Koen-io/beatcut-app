@@ -172,6 +172,18 @@ fn o_wazig(b: f32, uv: vec2<f32>) -> vec4<f32> {
 /// deze takken zijn uniforme controlestroom, en `o_monster()` samplet met een
 /// expliciete LOD en mag daarom overal staan.
 fn o_samenstel(b: f32, uvVul: vec2<f32>, uvPas: vec2<f32>, modus: f32) -> vec4<f32> {
+  return o_kleur(b, o_samenstel_ruw(b, uvVul, uvPas, modus));
+}
+
+/// Kleurafstemming per bron: de versterking uit `u.kleurA`/`u.kleurB` op het
+/// samengestelde beeld (ook op de wazige balken — ffmpeg doet dat in de
+/// export net zo, aan het eind van de blokketen). Eenheid (1,1,1) is niets.
+fn o_kleur(b: f32, c: vec4<f32>) -> vec4<f32> {
+  let g = select(u.kleurA.rgb, u.kleurB.rgb, b > 0.5);
+  return vec4<f32>(clamp(c.rgb * g, vec3<f32>(0.0), vec3<f32>(1.0)), c.a);
+}
+
+fn o_samenstel_ruw(b: f32, uvVul: vec2<f32>, uvPas: vec2<f32>, modus: f32) -> vec4<f32> {
   if (modus < 0.5) {
     return o_monster(b, uvVul) * o_binnen(uvVul);
   }
@@ -367,10 +379,19 @@ fn o_meng(soort: i32, a: vec4<f32>, b: vec4<f32>, uv: vec2<f32>, t: f32, seed: f
   if (soort == O_WIPE) {
     // Zachte rand plus een dun lichtlijntje. Zonder dat ziet een wipe eruit
     // als een jaloezie met trapjes.
+    //
+    // De grens begint en eindigt drie randbreedtes buiten beeld. Eén is
+    // genoeg voor de zachte rand, maar niet voor het lijntje: dat is een
+    // klokkromme en gaf op t=0 nog 0,24 licht in de linkerkolommen (15 codes),
+    // precies op het frame waarop de snede valt.
     let rand = 0.015;
-    let grens = tt * (1.0 + 2.0 * rand) - rand;
+    let buiten = 3.0 * rand;
+    let grens = tt * (1.0 + 2.0 * buiten) - buiten;
     let c = o_meng_licht(b, a, smoothstep(grens - rand, grens + rand, uv.x));
-    let lijn = exp(-pow((uv.x - grens) / rand, 2.0));
+    // q * q en geen pow(q, 2.0): pow met een negatief grondtal is in WGSL
+    // onbepaald en geeft op Dx12 (HLSL) NaN.
+    let q = (uv.x - grens) / rand;
+    let lijn = exp(-q * q);
     return c + vec4<f32>(vec3<f32>(lijn * 0.25), 0.0);
   }
 
@@ -405,7 +426,10 @@ fn o_meng(soort: i32, a: vec4<f32>, b: vec4<f32>, uv: vec2<f32>, t: f32, seed: f
     let rand = 0.07;
     let grens = tt * 1.5 - 0.25;
     let c = o_meng_licht(b, a, smoothstep(grens - rand, grens + rand, veld));
-    let ring = exp(-pow((veld - grens) / rand, 2.0)) * puls;
+    // q * q en geen pow(q, 2.0): pow met een negatief grondtal is in WGSL
+    // onbepaald en geeft op Dx12 (HLSL) NaN.
+    let q = (veld - grens) / rand;
+    let ring = exp(-q * q) * puls;
     let gloed = mix(vec3<f32>(1.0, 0.52, 0.12), vec3<f32>(1.0, 0.95, 0.80), ring);
     return c + vec4<f32>(gloed * ring * 0.85, 0.0);
   }

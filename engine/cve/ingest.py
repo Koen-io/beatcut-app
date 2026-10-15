@@ -13,9 +13,11 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from . import geo, media, paths
+from .doorvoer import Meter
 
 PROXY_HOOGTE = 540
 PROXY_FPS = 30
+FASE = "inlezen"
 
 
 @dataclass
@@ -110,6 +112,12 @@ def _ids_uit_ingest(pdir: Path) -> dict[str, str]:
     return uit
 
 
+def _korte_fout(e: BaseException) -> str:
+    """Eén regel voor in de interface: de eerste regel, zonder ffmpeg-lappen."""
+    tekst = str(e).strip().splitlines()[0] if str(e).strip() else type(e).__name__
+    return tekst[:160]
+
+
 def _sorteer_sleutel(info: media.MediaInfo) -> tuple[str, str]:
     """Chronologisch op opnamemoment; valt terug op bestandsnaam."""
     return (info.opgenomen or "9999", info.pad.name)
@@ -121,8 +129,15 @@ def ingest(
     overschrijf: bool = False,
     workers: int = 4,
     log=print,
+    meter: Meter | None = None,
 ) -> dict:
-    """Lees alle bronnen in en maak proxies. Geeft het ingest-woordenboek terug."""
+    """Lees alle bronnen in en maak proxies. Geeft het ingest-woordenboek terug.
+
+    `meter` is optioneel en meet de doorvoer voor de tijdschatting in de
+    interface. Ingest is de stap die de duur van elke clip te weten komt, dus
+    dit is ook de plek waar de maat van de hele klus bekend wordt — zie
+    `doorvoer.Meter.klus()`.
+    """
     pdir = paths.project_dir(project)
     bronmap = pdir / "bronnen"
     proxymap = pdir / "proxies"
@@ -132,7 +147,25 @@ def ingest(
         raise RuntimeError(f"Geen videobestanden gevonden in {bronmap}")
 
     log(f"{len(bestanden)} bronbestanden gevonden. Metadata lezen...")
-    infos = [media.probe(p) for p in bestanden]
+    # Eén onleesbaar bestand (afgebroken kopie, exotische codec, 0 bytes)
+    # hield daarvóór de hele ronde tegen: de andere twintig clips kwamen er
+    # dan ook niet door. Nu gaat zo'n bestand opzij, mét de reden, en de
+    # interface laat het zien in plaats van een rode balk over alles.
+    infos: list[media.MediaInfo] = []
+    overgeslagen: list[dict] = []
+    for p in bestanden:
+        try:
+            info = media.probe(p)
+            if info.duur <= 0 or info.breedte <= 0 or info.hoogte <= 0:
+                raise ValueError("geen bruikbaar beeld (duur of maat is 0)")
+        except Exception as e:  # noqa: BLE001 — de reden gaat mee naar de interface
+            log(f"  overgeslagen: {p.name} — {e}")
+            overgeslagen.append({"bestand": p.name, "fout": _korte_fout(e)})
+            continue
+        infos.append(info)
+    if not infos:
+        redenen = "; ".join(f"{o['bestand']}: {o['fout']}" for o in overgeslagen)
+        raise RuntimeError(f"Geen van de videobestanden is te lezen ({redenen})")
     infos.sort(key=_sorteer_sleutel)
 
     ids = wijs_ids_toe(pdir, [info.pad.name for info in infos])
@@ -164,8 +197,25 @@ def ingest(
     encoder, _ = media.video_encoder()
     log(f"Proxies maken ({PROXY_HOOGTE}p{PROXY_FPS}, encoder: {encoder})...")
 
-    def werk(paar: tuple[Clip, media.MediaInfo]) -> str:
+    def nog_omzetten(clip: Clip) -> bool:
+        """Staat er al een bruikbare proxy? Zelfde voorwaarde als `maak_proxy`.
+
+        De tijdschatting moet dit weten: een tweede ronde slaat tientallen
+        clips in een oogwenk over, en zonder dit onderscheid meet de meter
+        daar een doorvoer van duizend seconden per seconde en belooft daarna
+        "nog 0 seconden" terwijl de enige nieuwe clip nog moet.
+        """
+        doel = proxymap / clip.proxy
+        return overschrijf or not (doel.exists() and doel.stat().st_size > 0)
+
+    paren = list(zip(clips, infos, strict=True))
+    if meter is not None:
+        meter.klus(sum(c.duur for c in clips))
+        meter.plan(FASE, sum(c.duur for c, _ in paren if nog_omzetten(c)))
+
+    def werk(paar: tuple[Clip, media.MediaInfo]) -> float:
         clip, info = paar
+        te_doen = clip.duur if nog_omzetten(clip) else 0.0
         media.maak_proxy(
             info.pad,
             proxymap / clip.proxy,
@@ -173,16 +223,29 @@ def ingest(
             fps=PROXY_FPS,
             overschrijf=overschrijf,
         )
-        return clip.id
+        return te_doen
 
-    paren = list(zip(clips, infos, strict=True))
     klaar = 0
+    mislukt: set[str] = set()
     with ThreadPoolExecutor(max_workers=workers) as pool:
-        futures = {pool.submit(werk, paar): paar[0].id for paar in paren}
+        futures = {pool.submit(werk, paar): paar[0] for paar in paren}
         for f in as_completed(futures):
-            f.result()
+            clip = futures[f]
+            try:
+                gedaan = f.result()
+            except Exception as e:  # noqa: BLE001 — één proxy die mislukt is niet de hele ronde
+                gedaan = clip.duur
+                mislukt.add(clip.id)
+                log(f"  overgeslagen: {clip.bestand} — {e}")
+                overgeslagen.append({"bestand": clip.bestand, "fout": _korte_fout(e)})
+            if meter is not None:
+                meter.boek(FASE, gedaan)
             klaar += 1
-            log(f"  [{klaar}/{len(paren)}] {futures[f]}")
+            log(f"  [{klaar}/{len(paren)}] {clip.id}")
+    if mislukt:
+        clips = [c for c in clips if c.id not in mislukt]
+    if not clips:
+        raise RuntimeError("Van geen enkele video kon een proxy gemaakt worden")
 
     muziek = [p.name for p in media.vind_muziek(pdir / "muziek")]
 
@@ -195,6 +258,9 @@ def ingest(
         "totaal_duur": round(totaal, 2),
         "muziek": muziek,
         "clips": [asdict(c) for c in clips],
+        # Bestanden in `bronnen/` die niet mee konden, met de reden. De
+        # interface toont ze grijs; de analyse en de regie kennen ze niet.
+        "overgeslagen": overgeslagen,
     }
 
     (pdir / "ingest.json").write_text(

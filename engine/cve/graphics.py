@@ -24,7 +24,7 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
-from . import paths
+from . import editie, paths
 from .edl import EDL, OverlayBlok
 
 SJABLONEN = {
@@ -88,7 +88,7 @@ def laad_merk(naam: str) -> Merk:
 #: stil overslaan levert een export zonder titels op terwijl de voorvertoning
 #: ze wél laat zien, en dat is de ene belofte die niet mag breken.
 ONDERDELEN_ONTBREKEN = (
-    "De titelmotor staat nog niet klaar. BeatCut haalt die eenmalig op "
+    f"De titelmotor staat nog niet klaar. {editie.NAAM} haalt die eenmalig op "
     "(ongeveer 400 MB); daarna werkt het offline."
 )
 

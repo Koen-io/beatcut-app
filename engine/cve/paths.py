@@ -9,6 +9,8 @@ import os
 import sys
 from pathlib import Path
 
+from . import editie
+
 def _wortel() -> Path:
     """Waar `studio/`, `styles/` en `brands/` staan.
 
@@ -51,7 +53,7 @@ def _projecten() -> Path:
     if getattr(sys, "frozen", False):
         thuis = Path.home()
         films = thuis / ("Movies" if sys.platform == "darwin" else "Videos")
-        return (films if films.exists() else thuis) / "BeatCut"
+        return (films if films.exists() else thuis) / editie.MAPNAAM
     return ROOT / "projecten"
 
 
@@ -85,9 +87,9 @@ def steun_map() -> Path:
     if eigen:
         return Path(eigen).expanduser().resolve()
     if sys.platform == "darwin":
-        basis = Path.home() / "Library" / "Application Support" / "BeatCut"
+        basis = Path.home() / "Library" / "Application Support" / editie.MAPNAAM
     elif sys.platform.startswith("win"):
-        basis = Path(os.environ.get("LOCALAPPDATA", Path.home())) / "BeatCut"
+        basis = Path(os.environ.get("LOCALAPPDATA", Path.home())) / editie.MAPNAAM
     else:
         basis = Path.home() / ".local" / "share" / "beatcut"
     return basis
@@ -170,7 +172,7 @@ def ffmpeg() -> Path:
     p = _zoek_programma("ffmpeg")
     if p is None:
         raise RuntimeError(
-            "ffmpeg is niet gevonden. Open BeatCut en klik op 'ffmpeg ophalen', "
+            f"ffmpeg is niet gevonden. Open {editie.NAAM} en klik op 'ffmpeg ophalen', "
             "of installeer het zelf met: brew install ffmpeg"
         )
     return p
@@ -181,7 +183,7 @@ def ffprobe() -> Path:
     if p is None:
         raise RuntimeError(
             "ffprobe is niet gevonden. Die hoort bij ffmpeg; haal ffmpeg op in "
-            "BeatCut of installeer het met: brew install ffmpeg"
+            f"{editie.NAAM} of installeer het met: brew install ffmpeg"
         )
     return p
 
@@ -226,6 +228,12 @@ def whisper_bin() -> Path | None:
     lokaal = VENDOR / "whisper.cpp" / "build" / "bin" / exe
     if lokaal.exists():
         return lokaal
+    # Ingevroren: de statische build die met de app meekomt
+    # (`installer/whisper/bouw-mac.sh` → `Resources/engine/whisper/`).
+    # Vanuit de broncode: wat dat script in `installer/uit/whisper/` zette.
+    for d in (Path(sys.executable).parent / "whisper", ROOT / "installer" / "uit" / "whisper"):
+        if (d / exe).exists():
+            return d / exe
     return which("whisper-cli")
 
 
@@ -244,6 +252,11 @@ def whisper_model() -> Path | None:
                     return p
         if echte:
             return max(echte, key=lambda p: p.stat().st_size)
+    # Wat `spraakinstall.py` in de steunmap zette (de app, 15-10-2026).
+    # Alleen een compleet bestand: een `.deel` heeft een andere naam.
+    opgehaald = steun_map() / "whisper" / "models" / "ggml-large-v3-turbo-q5_0.bin"
+    if opgehaald.is_file():
+        return opgehaald
     return None
 
 

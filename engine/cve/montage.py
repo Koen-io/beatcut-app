@@ -68,6 +68,11 @@ def stijlen(project: str) -> dict:
         "vormen": vormen(),
         "herkend": None,
         "montage_herkend": None,
+        # De keuzes waarmee de montage die er ligt bedacht is, of `None`. De
+        # app begint daarmee in plaats van met zijn eigen standaard: anders
+        # ziet de engine na een herstart "een andere vorm en lengte" en
+        # regisseert hij opnieuw, dwars over het handwerk uit Bijwerken heen.
+        "brief": _brief(project),
     }
     analyse = _analyse(project)
     if analyse:
@@ -80,6 +85,19 @@ def stijlen(project: str) -> dict:
         uit["uitleg"] = v.zin()
         uit["gemeten"] = v.gemeten
     return uit
+
+
+def _brief(project: str) -> dict | None:
+    edlpad = paths.project_dir(project) / "edl.json"
+    if not edlpad.exists():
+        return None
+    from .edl import EDL
+
+    try:
+        brief = EDL.lees(edlpad).brief
+    except (OSError, ValueError, KeyError, TypeError):
+        return None
+    return dict(brief) if brief and brief.get("stijl") and brief.get("vorm") in VORMEN else None
 
 
 # -- muziek ----------------------------------------------------------------
@@ -341,6 +359,24 @@ def regie_nodig(
         return True
     if not bestaand.video:
         return True
+    # Andere muziek is een ander snijraster. De brief weet daar niets van, en
+    # zonder deze regels bleef de montage op de tellen van het vorige nummer
+    # liggen — en omdat dat bestand naar `_vorige/` verhuisd is, kwam de video
+    # er zelfs zónder geluid uit (05-10-2026). Twee gevallen: een ander
+    # bestand, of hetzelfde bestand waarvan de meting niet meer klopt.
+    track = _huidige_muziek(project)
+    if track is not None:
+        if bestaand.audio and bestaand.audio[0].bestand != track.name:
+            return True
+        if muziekstand(project) is None:
+            return True
+    # Een clip die in Media uitgezet is mag niet in de video blijven staan.
+    # De selectie staat naast `edl.json`, niet erin; zonder deze regel bleef
+    # een uitgevinkte clip in de montage tot er om een andere reden opnieuw
+    # geregisseerd werd (gezien bij het nalopen op 05-10-2026).
+    uitgezet = projecten.selectie(project)
+    if uitgezet and any(blok.bestand in uitgezet for blok in bestaand.video):
+        return True
     # Een montage van vóór 03-10-2026 heeft nog geen brief; die wordt één keer
     # opnieuw bedacht en draagt hem daarna wel.
     return bestaand.brief != brief_van(stijl, vorm, duur, montage)
@@ -356,6 +392,7 @@ def maak_video(
     duur: float | None = None,
     kwaliteit: str = "preview",
     regie: bool | None = None,
+    export: dict | None = None,
     melder=None,
 ) -> threading.Thread:
     """Regie, render en nakijken in één beweging, in een werkdraad.
@@ -371,7 +408,14 @@ def maak_video(
     percentages komen uit `voortgang.py`, zodat de balk dezelfde weging houdt
     als in de Studio: blokken renderen is het zwaarste deel, nakijken het
     lichtste.
+
+    `export` is de keuze uit het exportmenu (zie `export.py`) en telt alleen
+    bij `kwaliteit="eind"`. Hij wordt hier, vóór er iets gerenderd is,
+    gecontroleerd: een map die niet bestaat hoort de gebruiker nu te horen en
+    niet na tien minuten renderen.
     """
+    from . import export as export_mod
+
     from .director import Brief, kies_regisseur
     from .render import RenderOpties
     from .render import render as _render
@@ -379,7 +423,10 @@ def maak_video(
 
     if vorm not in VORMEN:
         raise ValueError(f"Vorm {vorm!r} kan niet. Kies uit: {', '.join(VORMEN)}")
-    titelkeuze = str(titel or titelstijl.standaard())
+    # Leeg betekent "wat er staat", niet "de eerste uit de catalogus": Stijl
+    # toont de stijl uit `edl.json` als gekozen zonder hem mee te sturen, en
+    # dan zette elke render hem stil terug op de standaard.
+    titelkeuze = str(titel or titelstijl.gekozen(project))
     titelstijl.eis(titelkeuze)
     if kwaliteit not in ("preview", "eind"):
         raise ValueError(f"Kwaliteit {kwaliteit!r} kan niet. Kies 'preview' of 'eind'.")
@@ -388,6 +435,15 @@ def maak_video(
         raise ValueError("Dit project is nog niet geanalyseerd.")
     if _huidige_muziek(project) is None:
         raise ValueError("Dit project heeft nog geen muziek.")
+    uitvoerkeuze = None
+    if export is not None and kwaliteit == "eind":
+        uitvoerkeuze = export_mod.lees_keuze(export)
+        export_mod.controleer_map(project, uitvoerkeuze)
+    # Komt er een omzetting achteraan, of is de master al wat er gevraagd is?
+    zet_om = uitvoerkeuze is not None and not uitvoerkeuze.is_master()
+    extra_stap = uitvoerkeuze is not None and (
+        zet_om or bool(uitvoerkeuze.map) or bool(uitvoerkeuze.naam)
+    )
     opnieuw = (
         regie_nodig(project, stijl=stijl, vorm=vorm, duur=duur, montage=montage)
         if regie is None
@@ -397,7 +453,7 @@ def maak_video(
         raise RuntimeError(f"Er loopt al werk aan dit project: {projecten.is_bezig(project)}")
 
     vg = voortgang
-    vg.start(project, vg.RENDER_FASEN)
+    vg.start(project, vg.render_fasen_met_uitvoer() if extra_stap else vg.RENDER_FASEN)
 
     def meld(fase: str, gedaan: int = 0, totaal: int = 0) -> None:
         vg.meld(project, fase, gedaan, totaal)
@@ -469,13 +525,30 @@ def maak_video(
                 looks.pas_toe(voorstel.edl, looks.keuze(project))
                 titelstijl.zet_op(voorstel.edl, project, titelkeuze)
                 voorstel.edl.brief = brief_van(stijl, vorm, duur, montage)
-                voorstel.edl.schrijf(edlpad)
+                from . import spraak
+
+                spraak.herleg(voorstel.edl, paths.project_dir(project))
+                # Via de geschiedenis: een herregie die vanzelf gebeurt (een
+                # clip uitgevinkt, andere muziek) gooit handwerk weg, en dat
+                # moet met "ongedaan" terug kunnen (review 14-10-2026).
+                from .monteren import schrijf_met_stap
+
+                schrijf_met_stap(edlpad.parent, voorstel.edl)
                 uitleg = voorstel.uitleg
             meld("voorbereiden", 1, 1)
 
             uit = _render(
                 project,
-                opties=RenderOpties(modus=kwaliteit),
+                # Ruimer coderen alleen als het beeld daarna nóg eens gecodeerd
+                # wordt. Blijft het beeld staan (alleen ander geluid of een
+                # ander bestandsformaat), dan ís dit het eindresultaat en
+                # hoort het de bitrate te hebben die het menu belooft.
+                opties=RenderOpties(
+                    modus=kwaliteit,
+                    bpp=0.30 if zet_om and not export_mod.beeld_blijft(
+                        uitvoerkeuze, *export_mod.canvas(project)[:3]
+                    ) else 0.15,
+                ),
                 log=lambda *_: None,
                 melden=lambda fase, k=0, t=0: meld(fase, k, t),
                 waarschuwingen=waarschuwingen,
@@ -483,6 +556,17 @@ def maak_video(
             meld("nakijken", 0, 1)
             rapport = _review(project, bestand=uit, log=lambda *_: None).naar_dict()
             meld("nakijken", 1, 1)
+            uitvoer = None
+            if uitvoerkeuze is not None:
+                if extra_stap:
+                    meld("uitvoer", 0, 1)
+                # Tienden van seconden: `meld` wil hele getallen.
+                uitvoer = export_mod.schrijf(
+                    project, uit, uitvoerkeuze,
+                    voortgang=lambda g, t: meld("uitvoer", int(g * 10), max(1, int(t * 10))),
+                )
+                if extra_stap:
+                    meld("uitvoer", 1, 1)
         except Exception as e:  # noqa: BLE001 — elke fout gaat als gebeurtenis terug
             import sys
             import traceback
@@ -499,6 +583,10 @@ def maak_video(
 
         projecten.zet_bezig(project, None)
         vg.klaar(project, bestand=uit.name, review=rapport)
+        try:
+            duur_uit = round(media.probe(uit).duur, 3)
+        except Exception:  # noqa: BLE001 — de video is er; zonder duur is beter dan zonder bericht
+            duur_uit = 0.0
         if melder:
             melder(
                 "klaar",
@@ -506,11 +594,14 @@ def maak_video(
                     "werk": "maakvideo",
                     "project": project,
                     "video": str(uit),
-                    "duur": round(media.probe(uit).duur, 3),
+                    "duur": duur_uit,
                     "geslaagd": rapport["geslaagd"],
                     "review": review_regels(rapport),
                     "uitleg": uitleg,
                     "waarschuwingen": waarschuwingen,
+                    # Waar de export staat als die iets anders is dan de
+                    # master hierboven; `null` bij een voorvertoning.
+                    "export": uitvoer,
                 },
             )
 

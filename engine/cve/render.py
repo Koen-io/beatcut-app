@@ -31,6 +31,11 @@ class RenderOpties:
     modus: str = "preview"  # preview | eind
     workers: int = 4
     crf: int = 20
+    # Bits per pixel per beeld voor de hardware-encoders in de eindexport.
+    # 0,15 is ruim voor een video die zo de deur uit gaat; wordt hij daarna
+    # nog omgezet (exportmenu), dan vraagt `montage.maak_video` om meer, zodat
+    # de tweede codering niet op een al uitgeknepen beeld hoeft te werken.
+    bpp: float = 0.15
     houd_tussenbestanden: bool = False
     # Alleen de eerste N seconden renderen. Voor snel ritme toetsen zonder
     # op de volledige montage te wachten.
@@ -92,6 +97,36 @@ def _kadercrop(blok: VideoBlok, b: int, h: int) -> str:
         f":x=clip(iw*({_kaderexpr(blok, 'x')})-ow/2\\,0\\,iw-ow)"
         f":y=clip(ih*({_kaderexpr(blok, 'y')})-oh/2\\,0\\,ih-oh)"
     )
+
+
+def _kleurmatch_filter(blok: VideoBlok, edl: EDL) -> str | None:
+    """De kleurafstemming van dit shot als ffmpeg-filter (zie `kleurmatch.py`).
+
+    Hetzelfde getal dat de speler in `u.kleurA/B` zet; `colorchannelmixer`
+    vermenigvuldigt de sRGB-codes per kanaal, precies wat `o_kleur()` doet.
+    """
+    from . import kleurmatch
+
+    if not edl.afstemmen:
+        return None
+    return kleurmatch.filter_voor(blok.kleur)
+
+
+#: Hoeveel bron er vóór een gestabiliseerd shot meeloopt, zodat `deshake`
+#: ingewerkt is op het eerste frame. Gemeten 15-10-2026: 3 s is genoeg.
+STABIEL_AANLOOP = 4.0
+
+
+def _stabilisatiefilter() -> str:
+    """`deshake`, de enige stabilisator in de LGPL-ffmpeg (vidstab is GPL).
+
+    Blokvergelijking op het hele beeld, zoekbereik 32 px; wat aan de rand
+    vrijkomt wordt gespiegeld (`edge=mirror`) en valt grotendeels onder het
+    kader dat erna komt. Niet zo goed als vidstab of een gyro, wél echt
+    minder trilling — en alleen in de export: de speler heeft er geen
+    tegenhanger voor en zegt dat erbij.
+    """
+    return "deshake=rx=32:ry=32:edge=mirror:blocksize=16:contrast=96"
 
 
 def _pasfilter(blok: VideoBlok, canvas: Canvas) -> str:
@@ -457,10 +492,24 @@ def _blokfilter(blok: VideoBlok, edl: EDL, aanloop: float = 0.0, staart: bool = 
     begint altijd op 0. Vandaar dat dit maandenlang onopgemerkt bleef.
     """
     delen: list[str] = []
+    # Stabiliseren vóór de `trim`, dus óók over de aanloop. `deshake` onthoudt
+    # de beweging van frame tot frame; begon hij pas op het eerste frame, dan
+    # stond een los gerenderde overgangsstaart anders dan het einde van zijn
+    # eigen shot en versprong het beeld op de snede (Codex, 15-10-2026).
+    # Gemeten: na 3 s inwerken is de staart identiek aan doorlopend
+    # stabiliseren (PSNR oneindig), na 2 s niet (20 dB) — vandaar
+    # `STABIEL_AANLOOP`. En vóór het kaderen: `deshake` kijkt naar het hele
+    # beeld en laat aan de rand een strook zien die het kader wegsnijdt.
+    if blok.stabiliseer:
+        delen.append(_stabilisatiefilter())
     if aanloop > 0:
         delen.append(f"trim=start={aanloop:.3f}")
     delen.append("setpts=PTS-STARTPTS")
     delen.append(_pasfilter(blok, edl.canvas))
+    # Kleurafstemming vóór de look, net als in de speler (`o_kleur`).
+    afstem = _kleurmatch_filter(blok, edl)
+    if afstem:
+        delen.append(afstem)
 
     zoom = _zoomfilter(blok, edl.canvas, edl.canvas.fps, vast=staart)
     if zoom:
@@ -516,6 +565,30 @@ def _blokfilter(blok: VideoBlok, edl: EDL, aanloop: float = 0.0, staart: bool = 
         delen.append(f"fade=t=in:st=0:d={over.duur:.3f}")
 
     return ",".join(delen)
+
+
+def _verloren_overgangen(blokken: list[VideoBlok]) -> str:
+    """Welke overgangen zonder compositor een harde snede worden, of "".
+
+    `montagestijl.kan_renderen()` biedt ze dan niet meer aan, maar een
+    `edl.json` van toen de compositor aan stond kan ze nog bevatten. Het
+    eerste blok telt niet mee: daar maakt de compositor ook geen overgang.
+    """
+    from . import montagestijl
+
+    kan = montagestijl.kan_renderen()
+    telling: dict[str, int] = {}
+    for b in blokken[1:]:
+        over = b.overgang_in
+        if over.duur > 0 and over.soort not in kan:
+            telling[over.soort] = telling.get(over.soort, 0) + 1
+    if not telling:
+        return ""
+    wat = ", ".join(f"{n}x {soort}" for soort, n in sorted(telling.items()))
+    return (
+        f"Zonder compositor worden deze overgangen een harde snede: {wat}. "
+        "De voorvertoning toont ze wel."
+    )
 
 
 # --------------------------------------------------------------------------
@@ -577,7 +650,7 @@ def _encoder_voor(
         return encoder, ["-preset", "medium" if opties.modus == "eind" else "veryfast",
                          "-crf", str(opties.crf)]
     if opties.modus == "eind" and "-b:v" in enc_opties:
-        bps = max(8_000_000, int(breedte * hoogte * fps * 0.15))
+        bps = max(8_000_000, int(breedte * hoogte * fps * opties.bpp))
         enc_opties = list(enc_opties)
         enc_opties[enc_opties.index("-b:v") + 1] = str(bps)
     return encoder, enc_opties
@@ -631,6 +704,9 @@ def _render_blok(
 
     doel = doelmap / f"{blok.id}.mp4"
     beweeg_frames, stil_frames = _frameverdeling(blok, edl.canvas.fps)
+    # Een gestabiliseerd shot krijgt een langere aanloop om `deshake` in te
+    # laten werken (zie `_blokfilter`).
+    aanloop = min(STABIEL_AANLOOP if blok.stabiliseer else 2.0, blok.bron_start)
     encoder, enc_opties = _encoder_voor(
         opties, edl.canvas.breedte, edl.canvas.hoogte, edl.canvas.fps
     )
@@ -647,7 +723,7 @@ def _render_blok(
         # De rest van de aanloop gaat er in de filterketen af (`trim`), niet
         # met een tweede -ss - zie de uitleg bij `_blokfilter`.
         "-ss",
-        f"{max(0.0, blok.bron_start - 2.0):.3f}",
+        f"{max(0.0, blok.bron_start - aanloop):.3f}",
         "-i",
         str(bron),
         # Exact aantal frames, niet `-t <seconden>`. Met -t rondt ffmpeg af en
@@ -659,7 +735,7 @@ def _render_blok(
         "0:v:0",
         "-an",
         "-vf",
-        _blokfilter(blok, edl, aanloop=min(2.0, blok.bron_start), staart=staart),
+        _blokfilter(blok, edl, aanloop=aanloop, staart=staart),
         "-c:v",
         encoder,
         *enc_opties,
@@ -796,17 +872,28 @@ def _plak(delen: list[Path], doel: Path, fps: int) -> Path:
 def _duck_uitdrukking(edl: EDL, projectmap: Path, sterkte: float = 0.28) -> str:
     """Zet de muziek zachter waar gesproken wordt.
 
-    De momenten komen uit `ondertitels.json` — daar staat per regel wanneer er
-    gepraat wordt. Zonder ondertitels gebeurt er niets, en dat is prima: dan
-    valt er ook niets te ducken.
+    De momenten komen uit de ondertitel-laag in de EDL zelf — daar staat per
+    regel wanneer er gepraat wordt. Tot 15-10-2026 kwamen ze uit
+    `ondertitels.json`, maar dat bestand gaat niet mee met ongedaan maken:
+    na een trim + ongedaan zakte de muziek dan op de tijden van de getrimde
+    versie (review 15-10-2026). `ondertitels.json` blijft alleen de terugval
+    voor een EDL van vóór de ondertitel-laag.
     """
-    pad = projectmap / "ondertitels.json"
-    if not pad.exists():
-        return ""
-    try:
-        regels = json.loads(pad.read_text(encoding="utf-8")).get("regels", [])
-    except (json.JSONDecodeError, OSError):
-        return ""
+    regels: list = []
+    laag = next((o for o in edl.overlay if o.soort == "ondertitels"), None)
+    if laag is not None:
+        try:
+            regels = json.loads(laag.inhoud.get("regels") or "[]")
+        except (json.JSONDecodeError, TypeError):
+            regels = []
+    else:
+        pad = projectmap / "ondertitels.json"
+        if not pad.exists():
+            return ""
+        try:
+            regels = json.loads(pad.read_text(encoding="utf-8")).get("regels", [])
+        except (json.JSONDecodeError, OSError):
+            return ""
     if not regels:
         return ""
 
@@ -1136,6 +1223,10 @@ def render(
     # wat stap Look toont. Dat hoort in het log te staan, niet stil te gebeuren.
     if (klacht := compositor.waarschuwing()):
         log(f"Let op: {klacht}")
+    if (klacht := _verloren_overgangen(blokken)):
+        log(f"Let op: {klacht}")
+        if waarschuwingen is not None:
+            waarschuwingen.append(klacht)
     zeg("voorbereiden", 1, 1)
 
     # Per blok kunnen het er twee zijn: het bewegende deel en het bevroren

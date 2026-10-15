@@ -1,6 +1,6 @@
 [package]
 name = "beatcut"
-version = "0.3.2"
+version = "0.4.0"
 description = "BeatCut — video's die op de beat liggen"
 authors = ["Koen"]
 edition = "2021"
@@ -33,8 +33,18 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tauri-plugin-dialog = "2"
 tauri-plugin-updater = "2"
+# Voor het eerste API-verzoek bij een privé releases-repo (src/bijwerken.rs).
+# Dezelfde opties als de updaterplugin, zodat er één reqwest in de bundel zit.
+reqwest = { version = "0.13", default-features = false, features = ["json", "rustls-no-provider", "system-proxy"] }
+# `rustls-no-provider` betekent: iemand moet de crypto-provider installeren
+# vóór de eerste Client. De updaterplugin doet dat pas bij zíjn eerste
+# verzoek; ons API-verzoek komt eerder. Zonder dit panickte de controle in
+# een tokio-worker en bleef de pop-up op "Controleren…" staan (15-10-2026).
+rustls = { version = "0.23", features = ["ring"] }
 # Alleen voor `relaunch()` na een update.
 tauri-plugin-process = "2"
+# Venster opent waar je het liet: plek en grootte blijven bewaard (15-10-2026).
+tauri-plugin-window-state = "2"
 
 
 # Read the optimization guideline for more details: https://tauri.app/concept/size/#cargo-configuration
@@ -42,5 +52,10 @@ tauri-plugin-process = "2"
 codegen-units = 1
 lto = true
 opt-level = 3
-panic = "abort"
+# "unwind" en niet "abort" (15-10-2026): met abort haalde één panic in een
+# achtergrondtaak de hele app neer — Koens crash bij het scrollen door de
+# montagestijlen (SIGABRT in een tokio-worker, in wry's url_scheme_handler).
+# Met unwind vangt tokio de panic in die ene taak op en draait de app door.
+# Wat er gebeurde staat dan in ~/Library/Logs/BeatCut/paniek.log (lib.rs).
+panic = "unwind"
 strip = true

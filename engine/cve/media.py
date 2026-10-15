@@ -62,19 +62,88 @@ _KANDIDATEN: list[tuple[str, list[str]]] = [
 _NOODUITGANG: tuple[str, list[str]] = ("mpeg4", ["-q:v", "3"])
 
 
-def _werkt(encoder: str, opties: list[str]) -> bool:
+def _werkt(encoder: str, opties: list[str], pix_fmt: str = "yuv420p") -> bool:
     """Lukt een encode van drie frames echt? Alleen dat telt."""
     try:
         r = subprocess.run(
-            [str(paths.ffmpeg()), "-hide_banner", "-v", "error",
+            [str(paths.ffmpeg()), "-hide_banner", "-nostdin", "-v", "error",
              "-f", "lavfi", "-i", "testsrc2=size=320x240:rate=30",
-             "-frames:v", "3", "-pix_fmt", "yuv420p",
+             "-frames:v", "3", "-pix_fmt", pix_fmt,
              "-c:v", encoder, *opties, "-f", "null", "-"],
             capture_output=True, text=True, timeout=30,
         )
     except Exception:  # noqa: BLE001
         return False
     return r.returncode == 0
+
+
+def encoder_werkt(encoder: str, opties: list[str], pix_fmt: str = "yuv420p") -> bool:
+    """Is deze encoder meegebouwd én slaagt een proefencode? Voor het exportmenu."""
+    return f" {encoder} " in _encoderlijst() and _werkt(encoder, opties, pix_fmt)
+
+
+@lru_cache(maxsize=1)
+def _encoderlijst() -> str:
+    """Wat er in deze ffmpeg is meegebouwd. Eén keer vragen is genoeg."""
+    try:
+        return subprocess.run(
+            [str(paths.ffmpeg()), "-hide_banner", "-nostdin", "-encoders"],
+            capture_output=True, text=True, timeout=30, stdin=subprocess.DEVNULL,
+        ).stdout
+    except Exception:  # noqa: BLE001
+        return ""
+
+
+def zet_om(args: list[str], *, duur: float, voortgang=None, timeout: float = 6 * 3600) -> None:
+    """Draai één ffmpeg-omzetting en meld onderweg hoe ver hij is.
+
+    `args` is alles na `ffmpeg` zelf, met het doelbestand als laatste.
+    `voortgang(gedaan, totaal)` krijgt seconden video. De voortgang komt uit
+    `-progress`, niet uit stderr: stderr gaat naar een eigen bestand, zodat een
+    volle pijp de omzetting nooit kan laten hangen (zie render-ffmpeg.md,
+    "elk kindproces een eigen stderr").
+    """
+    import tempfile
+    import threading
+
+    with tempfile.TemporaryFile(mode="w+", encoding="utf-8", errors="replace") as fouten:
+        proc = subprocess.Popen(
+            [str(paths.ffmpeg()), "-y", "-hide_banner", "-nostdin", "-loglevel", "error",
+             "-nostats", "-progress", "pipe:1", *args],
+            stdout=subprocess.PIPE, stderr=fouten, text=True, stdin=subprocess.DEVNULL,
+        )
+        # Een eigen wekker: de leeslus hieronder merkt niets van de tijd als
+        # ffmpeg stilvalt zonder nog een regel te schrijven.
+        te_laat = threading.Event()
+
+        def stop() -> None:
+            te_laat.set()
+            proc.kill()
+
+        wekker = threading.Timer(timeout, stop)
+        wekker.daemon = True
+        wekker.start()
+        try:
+            assert proc.stdout is not None
+            for regel in proc.stdout:
+                if voortgang and regel.startswith("out_time_us="):
+                    try:
+                        voortgang(min(duur, int(regel.split("=", 1)[1]) / 1_000_000), duur)
+                    except ValueError:
+                        pass  # "N/A" aan het begin
+            code = proc.wait()
+        except BaseException:
+            proc.kill()
+            proc.wait()
+            raise
+        finally:
+            wekker.cancel()
+        if te_laat.is_set():
+            raise MediaFout("Het omzetten duurde te lang en is gestopt.")
+        if code != 0:
+            fouten.seek(0)
+            kort = fouten.read().strip().splitlines()[-5:]
+            raise MediaFout("ffmpeg kon de video niet omzetten: " + " | ".join(kort))
 
 
 @lru_cache(maxsize=1)

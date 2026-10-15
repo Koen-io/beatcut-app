@@ -36,6 +36,8 @@ import { projectTitels, type Titelweb } from "../engine";
 // de renderer kopieert.
 import titel20Html from "../../../brands/sjablonen/titel20.html?raw";
 import titel20Js from "../../../brands/sjablonen/titel20.js?url";
+// De bouw zet deze stylesheet binnen `.titel20-laag` (`app/titelbereik.ts`):
+// buiten de titellaag raakt het sjabloon niets in de app.
 import "../../../brands/sjablonen/titel20.css";
 import "../../../brands/fonts/titelfonts.css";
 

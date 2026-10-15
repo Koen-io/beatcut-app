@@ -1,11 +1,22 @@
 // De enige weg van de interface naar de engine. Elke methode uit
 // engine/cve/rpc.py is hier één aanroep; nergens anders invoke().
 import { invoke } from "@tauri-apps/api/core";
+import type { Keuzesoort, Omvang } from "./verwijderkeuze";
+import type { Kopie, Teruggezet } from "./terugzetkeuze";
 import type { KaderPunt } from "./speler/uniforms";
 
 export type Check = { naam: string; ok: boolean; detail: string; vereist: boolean };
 export type Doctor = { ok: boolean; fouten: number; checks: Check[] };
-export type Hallo = { engine: string; versie: string; protocol: number; methodes: string[] };
+export type Hallo = {
+  engine: string;
+  versie: string;
+  protocol: number;
+  methodes: string[];
+  /** Sinds 15-10-2026: onder welke naam de engine draait, en waar hij schrijft. */
+  editie?: string;
+  steunmap?: string;
+  projecten?: string;
+};
 /** `projecten.naar_dict()` — de staat van één project. */
 export type Project = {
   naam: string;
@@ -19,6 +30,9 @@ export type Project = {
   renders: string[];
   gewijzigd: string | null;
   bezig: string | null;
+  /** Video's waar een teruggezet project nog op wacht. Zolang hier iets staat
+   *  leest de engine niet opnieuw in. */
+  ontbreekt: string[];
   stap: string | null;
   klaar: boolean;
 };
@@ -39,6 +53,7 @@ export type Clip = {
   score: number | null;      // beste segmentscore, pas na de analyse
   aan: boolean;
   thumbnail: string | null;  // absoluut pad naar een JPG van ~320 px breed
+  fout?: string;             // gezet als het bestand niet te lezen was; dan staat hij uit
 };
 
 /** Eén soort beelden uit styles/ — bepaalt wat een goed shot is. Wordt
@@ -77,6 +92,8 @@ export type Stijlen = {
   vormen: Vorm[];
   herkend: string | null;     // wat stijlkeuze.py bij dit materiaal vindt
   montage_herkend: string | null;  // de montagestijl die daar standaard bij hoort
+  /** Waarmee de montage die er ligt bedacht is, of null als er geen ligt. */
+  brief: { stijl: string; montage: string; vorm: Vorm["naam"]; duur: number | null } | null;
   zekerheid?: number;         // 0..1, hoe duidelijk die keuze wint
   uitleg?: string;            // één zin voor de gebruiker
   gemeten?: Record<string, number>;
@@ -154,7 +171,11 @@ export type OnderdelenStatus = {
   onderdelen: Onderdeel[];
   bezig: boolean;
   bytes: number;
+  /** Hoeveel er in totaal binnenkomt. Niet hoeveel er vrij moet zijn op
+   *  schijf — dat is `ruimte_nodig_bytes`, en met dát getal als noemer komt de
+   *  teller nooit boven een derde uit. */
   nodig_bytes: number;
+  ruimte_nodig_bytes?: number;
   uitleg: string;
 };
 
@@ -217,6 +238,11 @@ export type Shot = {
   proxy: string | null;         // absoluut pad; de speler decodeert dit bestand
   reden: string;
   vast: boolean;
+  /** Kleurafstemming: versterking per kanaal, leeg is de eenheid. Zie
+   *  engine/cve/kleurmatch.py; `Montagestand.afstemmen` zet het aan/uit. */
+  kleur?: { r?: number; g?: number; b?: number };
+  /** Trilling wegfilteren in de export (ffmpeg deshake); de speler toont het origineel. */
+  stabiliseer?: boolean;
   score: number | null;
   signalen: Record<string, number>;
   moet: boolean;
@@ -253,6 +279,11 @@ export type Montagestand = {
   titels: { id: string; soort: string; start: number; duur: number; tekst: string }[];
   clips: Record<string, ShotClip>;
   voorkeuren: { moet: string[]; nooit: string[] };
+  /** Kleurafstemming tussen clips aan/uit (13-10-2026). */
+  afstemmen?: boolean;
+  /** Hoeveel stappen ongedaan en opnieuw kunnen (`monteren.py`). Optioneel:
+   *  een engine van vóór 13-10-2026 stuurt het niet mee. */
+  geschiedenis?: { terug: number; vooruit: number };
 };
 
 /** Eén mechanische controle op de render (review.py). */
@@ -278,7 +309,18 @@ export type Voortgang = {
   totaal: number;
   tekst: string;
   percentage?: number;        // alleen bij maakvideo
-  resterend?: number | null;  // geschatte seconden, alleen bij maakvideo
+  /** Geschatte seconden te gaan. `null` = nog niet genoeg gemeten
+   *  ("schatten…"); `undefined` = dit soort werk schat niet. */
+  resterend?: number | null;
+  verstreken?: number;        // seconden sinds het begin van de klus
+  /** Hoe ver de klus is als breuk, gewogen naar tijd. Komt uit dezelfde som
+   *  als `resterend`, zodat balk en getal niet uit elkaar lopen. */
+  aandeel?: number | null;
+  /** Seconden bronvideo door deze fase heen, en wat er in totaal door moet.
+   *  Alleen bij verwerk: de tijdschatting rekent in bronvideo, niet in
+   *  bestanden — zie engine/cve/doorvoer.py. */
+  bron_gedaan?: number;
+  bron_totaal?: number;
 };
 export type Montage = {
   werk: "maakvideo";
@@ -292,6 +334,10 @@ export type Montage = {
    *  getekend konden worden, bijvoorbeeld. Exporteren toont deze regels; ze
    *  mogen nooit alleen in een logbestand staan. */
   waarschuwingen: string[];
+  /** Waar de export staat, als er in het exportmenu iets gekozen is. Bij een
+   *  voorvertoning `null`. `omgezet: false` = de video hierboven, ongewijzigd
+   *  of alleen gekopieerd. */
+  export?: { pad: string; bytes: number; omgezet: boolean } | null;
 };
 export type EngineGebeurtenis =
   | { gebeurtenis: "voortgang"; data: Voortgang }
@@ -316,6 +362,39 @@ export const doctor = () => engine<Doctor>("doctor");
 export const projecten = () => engine<Project[]>("projecten");
 
 export const projectMaak = (naam: string) => engine<Project>("project.maak", { naam });
+
+/** Wat het project op schijf inneemt, per soort — voor de verwijderdialoog. */
+export const projectOmvang = (project: string) => engine<Omvang>("project.omvang", { project });
+
+export type Verwijderd = {
+  naam: string;
+  vrijgemaakt: number;
+  /** De map met wat bewaard bleef, of null als alles weg is. */
+  bewaard: string | null;
+  kopie: string | null;
+  prullenbak: string;
+};
+/** Project naar de prullenbak. `weg` noemt welke soorten meegaan; met `kopie`
+ *  schrijft de engine eerst een .zip en stopt hij als dat mislukt. Antwoordt
+ *  pas als het klaar is. */
+export const projectVerwijder = (
+  project: string,
+  weg: Keuzesoort[],
+  kopie: string | null,
+  kopieProxies: boolean,
+) => engine<Verwijderd>("project.verwijder", { project, weg, kopie, kopie_proxies: kopieProxies });
+/** Wat er in een kopie-zip zit en wat terugzetten zou doen — schrijft niets.
+ *  `naam`: de naam die de gebruiker wil; `zoek`: mappen waar de video's nu
+ *  staan. Een kapot of vreemd bestand komt terug als fout met uitleg. */
+export const projectKopie = (pad: string, naam: string | null, zoek: string[]) =>
+  engine<Kopie>("project.kopie", { pad, naam, zoek });
+/** Maak van de kopie weer een project. Overschrijft nooit iets; antwoordt pas
+ *  als het klaar is. */
+export const projectTerugzetten = (pad: string, naam: string | null, zoek: string[]) =>
+  engine<Project & Teruggezet>("project.terugzetten", { pad, naam, zoek });
+/** Verder zonder de video's waar een teruggezet project nog op wachtte. */
+export const projectZonderOntbrekend = (project: string) =>
+  engine<Project>("project.zonder_ontbrekend", { project });
 export const projectVoegToe = (project: string, paden: string[]) =>
   engine<{ bestanden: { naam: string; soort?: string; fout?: string }[]; status: Project }>(
     "project.voegtoe", { project, paden });
@@ -387,10 +466,84 @@ export const projectMaakVideo = (
    *  interface het bijgewerkte werk uit stap 4 niet per ongeluk weggooien.
    *  `false` = nooit opnieuw regisseren, wat de knop in stap 4 doet. */
   regie?: boolean,
+  /** De keuze uit het exportmenu; telt alleen bij kwaliteit "eind". */
+  exportkeuze?: Exportkeuze,
 ) => engine<{ gestart: boolean }>("project.maakvideo", {
   project, stijl, montage, titel, vorm, duur, kwaliteit,
   ...(regie === undefined ? {} : { regie }),
+  ...(exportkeuze === undefined ? {} : { export: exportkeuze }),
 });
+
+/** Zorg dat er een montage ligt die bij de keuzes uit Stijl hoort, zonder te
+ *  renderen. Voor de route Stijl → Look → Bijwerken. Regisseert alleen als de
+ *  keuzes veranderd zijn; handwerk uit Bijwerken blijft dus staan. */
+export const projectVoorbereid = (
+  project: string,
+  stijl: string,
+  montage: string,
+  titel: string,
+  vorm: Vorm["naam"],
+  duur: number | null,
+) => engine<{ opnieuw: boolean; uitleg: string; waarschuwingen: string[] }>(
+  "project.voorbereid", { project, stijl, montage, titel, vorm, duur });
+
+// ---- het exportmenu -------------------------------------------------------
+// De engine is de enige die weet wat deze computer kan maken en hoe groot het
+// wordt; de interface tekent alleen wat hij terugkrijgt. Zie engine/cve/export.py.
+
+export type Exportkeuze = {
+  container: string;
+  codec: string;
+  /** "bron" of de korte zijde in pixels, als tekst ("1080"). */
+  resolutie: string;
+  /** "bron" of beelden per seconde, als tekst ("25"). */
+  fps: string;
+  kwaliteit: string;
+  /** Mbit/s; telt alleen bij kwaliteit "eigen". */
+  bitrate: number;
+  prores: string;
+  audio: string;
+  audio_kbps: number;
+  samplerate: number;
+  /** Leeg = bij het project. */
+  map: string;
+  /** Zonder extensie; leeg = de projectnaam. */
+  naam: string;
+};
+type Optie = { id: string; label: string; uitleg?: string };
+export type Exportmogelijkheden = {
+  containers: (Optie & { video: string[]; audio: string[] })[];
+  codecs: (Optie & { beschikbaar: boolean; encoder: string })[];
+  audio: Optie[];
+  kwaliteit: Optie[];
+  prores: Optie[];
+  resoluties: (Optie & { breedte: number; hoogte: number; opgeschaald: boolean })[];
+  fps: number[];
+  audio_kbps: number[];
+  samplerates: number[];
+  bitrate: { min: number; max: number };
+  bron: { breedte: number; hoogte: number; fps: number; duur: number };
+  standaardmap: string;
+  voorinstellingen: (Optie & { keuze: Partial<Exportkeuze> })[];
+};
+export type Exportschatting = {
+  breedte: number;
+  hoogte: number;
+  fps: number;
+  video_bps: number;
+  audio_bps: number;
+  duur: number;
+  bytes: number;
+  pad: string;
+  map_bestaat: boolean;
+  vrij: number | null;
+  past: boolean;
+  omzetten: boolean;
+};
+export const exportMogelijkheden = (project: string) =>
+  engine<Exportmogelijkheden>("export.mogelijkheden", { project });
+export const exportSchat = (project: string, keuze: Exportkeuze) =>
+  engine<Exportschatting>("export.schat", { project, keuze });
 
 /** Loopt er ergens een render, analyse of muziekgeneratie? Gevraagd vóór het
  *  installeren van een update: die sluit op Windows de app meteen af. */
@@ -446,8 +599,58 @@ export const projectShotZet = (
   /** `kader: {}` betekent "automatisch": de engine rekent het opnieuw uit de
    *  aandachtspunten. Een gevuld object is een eigen keuze. Laat het weg om
    *  het kader te laten staan zoals het is. */
-  wijziging: { snelheid?: number; bron_in?: number; kader?: KaderPunt },
+  wijziging: { snelheid?: number; bron_in?: number; kader?: KaderPunt; stabiliseer?: boolean },
 ) => engine<Montagestand>("project.shot.zet", { project, shot, ...wijziging });
+/** Kleurafstemming tussen clips aan of uit; de getallen blijven staan. */
+export const projectAfstemmen = (project: string, aan: boolean) =>
+  engine<Montagestand>("project.afstemmen", { project, aan });
+
+// Monteren (13-10-2026). Elke snede blijft op een tel; zie engine/cve/monteren.py.
+/** De inhoud van een shot naar plek `naar` (0-gebaseerd); de vakken blijven staan. */
+export const projectShotVerplaats = (project: string, shot: string, naar: number) =>
+  engine<Montagestand>("project.shot.verplaats", { project, shot, naar });
+/** De snede aan het begin of eind van dit shot `tellen` tellen opschuiven. */
+export const projectShotTrim = (
+  project: string, shot: string, kant: "begin" | "eind", tellen: number,
+) => engine<Montagestand>("project.shot.trim", { project, shot, kant, tellen });
+/** Knip op de tel die het dichtst bij `op` (tijdlijnseconden) ligt; zonder `op` het midden. */
+export const projectShotSplits = (project: string, shot: string, op?: number) =>
+  engine<Montagestand>("project.shot.splits", op === undefined ? { project, shot } : { project, shot, op });
+/** Shot weg; de buurman neemt zijn vak over. */
+export const projectShotVerwijder = (project: string, shot: string) =>
+  engine<Montagestand>("project.shot.verwijder", { project, shot });
+// Spraak (13-10-2026, engine/cve/spraak.py): ondertitels, eigen geluid, ducking.
+export type Spraakstand = {
+  aan: boolean;
+  kleur: string;
+  grootte: string;
+  positie: string;
+  stijl: string;
+  taal: string;
+  woorden: number;
+  regels: number;
+  /** Staan whisper.cpp en het model op deze computer? */
+  kan: boolean;
+  /** whisper-cli staat er, alleen het model nog niet: dat kan de app ophalen. */
+  model_ophaalbaar?: boolean;
+  model_bytes?: number;
+  installeren_bezig?: boolean;
+};
+/** Het spraakmodel ophalen (~574 MB). Voortgang met werk "spraakinstall". */
+export const spraakInstalleer = () => engine<{ gestart: boolean }>("spraak.installeer", {});
+export const spraakInstalleerStop = () =>
+  engine<{ gestopt: boolean }>("spraak.installeer_stop", {});
+export const spraakStand = (project: string) =>
+  engine<Spraakstand>("spraak.stand", { project });
+/** Start het herkennen; `voortgang`/`klaar`/`fout` met werk "spraak" volgen als gebeurtenissen. */
+export const spraakMaak = (project: string, instellingen: Partial<Spraakstand> = {}) =>
+  engine<{ gestart: boolean }>("spraak.maak", { project, ...instellingen });
+export const spraakWeg = (project: string) => engine<Spraakstand>("spraak.weg", { project });
+
+export const projectOngedaan = (project: string) =>
+  engine<Montagestand>("project.ongedaan", { project });
+export const projectOpnieuw = (project: string) =>
+  engine<Montagestand>("project.opnieuw", { project });
 /** Alleen de regie opnieuw: geen render, geen ffmpeg behalve de beeldjes. */
 export const projectRegisseer = (
   project: string,

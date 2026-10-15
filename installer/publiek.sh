@@ -17,7 +17,15 @@ cd "$(dirname "$0")/.."
 
 PUBLIEK="Koen-io/beatcut-app"
 DROOG=false
-[[ "${1:-}" == "--droog" ]] && DROOG=true
+TAG=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --droog) DROOG=true ;;
+    --tag)   TAG="$2"; shift ;;
+    *)       echo "publiek.sh: onbekende optie $1" >&2; exit 2 ;;
+  esac
+  shift
+done
 
 # Alleen wat gecommit is gaat mee (git archive HEAD); werk in uitvoering niet.
 BRON=$(git rev-parse --short HEAD)
@@ -33,13 +41,23 @@ git archive HEAD | tar -x -C "$WERK/"
   rm -f AGENTS.md CLAUDE.md OVERDRACHT.md HISTORIE.md PLAN.md PLAN-v2.md valkuilen-historie.md
   # Zegt waar de ondertekensleutel op de Mac staat; hoort niet publiek.
   rm -f installer/LEESMIJ.md
+  # Edities met een merk van derden (P-ALV: het logo van de Afdeling
+  # Luchtvaart) gaan nooit publiek. De CI haalt ze als merkpakket uit de
+  # privé-releases-repo van die editie (installer/merkpakket.sh).
+  find app/edities -mindepth 1 -maxdepth 1 -type d ! -name beatcut -exec rm -rf {} +
 )
 
 # Vangrail: niets wat naar beelden van mensen, sleutels of persoonlijke
 # notities ruikt mag mee.
-if find "$WERK" -type f \( -iname '*.mov' -o -iname '*.mp4' -o -iname '*.key' \
-     -o -iname '*.pem' -o -iname '.env*' \) | grep -q .; then
-  echo "publiek.sh: verboden bestandstype in de momentopname" >&2; exit 1
+# Uitzondering: app/public/stijlvoorbeelden/ — de voorbeeldtegels per
+# montagestijl, door ffmpeg uit synthetische bronnen gerekend
+# (projectgeheugen/stijlvoorbeelden.md), geen opnamen van wie dan ook. De app
+# bouwt niet zonder. Stond hier niet in en brak de eerste release (15-10-2026).
+verboden="$(find "$WERK" -type f \( -iname '*.mov' -o -iname '*.mp4' -o -iname '*.key' \
+     -o -iname '*.pem' -o -iname '.env*' \) ! -path '*/app/public/stijlvoorbeelden/*')"
+if [ -n "$verboden" ]; then
+  echo "publiek.sh: verboden bestandstype in de momentopname:" >&2
+  echo "$verboden" | sed "s#^$WERK/#   #" >&2; exit 1
 fi
 
 if $DROOG; then
@@ -63,5 +81,11 @@ else
   git -C "$KLOON" commit -q -m "Momentopname van beatcut@$BRON"
 fi
 git -C "$KLOON" push -q origin HEAD:main
+if [ -n "$TAG" ]; then
+  # De tag start de bouw in de bouwrepo (.github/workflows/beatcut2.yml).
+  git -C "$KLOON" tag -a "$TAG" -m "BeatCut $TAG (beatcut@$BRON)"
+  git -C "$KLOON" push -q origin "$TAG"
+  echo "tag $TAG gezet in $PUBLIEK"
+fi
 echo "$PUBLIEK bijgewerkt naar beatcut@$BRON"
 echo "$KLOON"

@@ -1,16 +1,24 @@
 // Stap 5 — Exporteren: de montage zien ontstaan en daarna echt bekijken.
 // Ontwerp: ontwerp/beatcut2/Main.dc.html, scherm EXPORTEREN.
 //
-// Het formaat staat hier alleen te lezen; wijzigen gebeurt in Stijl (besluit
-// Koen, PLAN-v2.md §4): de regisseur kadert elk shot op dat formaat.
+// De beeldverhouding (16:9, 9:16…) staat hier alleen te lezen; wijzigen
+// gebeurt in Stijl (besluit Koen, PLAN-v2.md §4): de regisseur kadert elk
+// shot op die vorm. Al het andere — bestandsformaat, codec, resolutie,
+// bitrate, geluid, map en naam — kies je hier, in `ExportMenu.tsx`.
 import { useEffect, useState, type CSSProperties } from "react";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { revealItemInDir } from "@tauri-apps/plugin-opener";
 import { bytesTekst, duurTekst } from "./format";
 import { exportOordeel, motorstand, type Titelstand } from "./exportkeuze";
+import ExportMenu from "./ExportMenu";
+import { bewaar, bewaarToon, isStandaard, laad, laadToon, pasAan } from "./exportinstellingen";
+import { exportnaamVan, onthoudExportnaam } from "./exportgeheugen";
 import {
+  exportMogelijkheden,
   projectMontage,
   projectVideo,
+  type Exportkeuze,
+  type Exportmogelijkheden,
   type Montage,
   type Montagestand,
   type ReviewRegel,
@@ -20,6 +28,8 @@ import {
 import Speler from "./speler/Speler";
 import type { useOnderdelen } from "./onderdelen";
 import type { Keuze } from "./Stijl";
+import Zijbalk from "./Zijbalk";
+import { EDITIE } from "./editie";
 
 export type Kwaliteit = "preview" | "eind";
 
@@ -35,8 +45,12 @@ export type MontageStand =
  *  wil weten: wordt er bedacht, gerenderd of nagekeken. */
 const GROEPEN = [
   { id: "regie", label: "De montage bedenken", fasen: ["voorbereiden"] },
-  { id: "render", label: "Beelden renderen", fasen: ["blokken", "samenstellen", "geluid", "titels"] },
+  // "look" staat er sinds de native compositor bij: die meldt zich tussen het
+  // samenstellen door. Zonder hem hier vielen tijdens die pass alle vinkjes weg.
+  { id: "render", label: "Beelden renderen", fasen: ["blokken", "samenstellen", "look", "geluid", "titels"] },
   { id: "nakijken", label: "De video nakijken", fasen: ["nakijken"] },
+  // Alleen als er in het exportmenu iets anders gekozen is dan de standaard.
+  { id: "uitvoer", label: "Wegschrijven in jouw formaat", fasen: ["uitvoer"] },
 ] as const;
 
 const isMac = navigator.userAgent.includes("Mac");
@@ -54,6 +68,10 @@ type Resultaat = {
    *  render: `project.video` bewaart dit niet, want het hoort bij die ene
    *  poging en niet bij het bestand. */
   waarschuwingen: string[];
+  /** Het bestand uit het exportmenu, als dat een ander is dan `video`. De
+   *  speler blijft op `video` staan: dat is altijd een MP4 in de projectmap,
+   *  en dus iets wat het venster mag en kan afspelen (ProRes kan dat niet). */
+  export: { pad: string; bytes: number } | null;
 };
 
 function uitMontage(m: Montage): Resultaat {
@@ -65,12 +83,15 @@ function uitMontage(m: Montage): Resultaat {
     uitleg: m.uitleg,
     bytes: null,
     waarschuwingen: m.waarschuwingen ?? [],
+    export: m.export != null && m.export.pad !== m.video
+      ? { pad: m.export.pad, bytes: m.export.bytes }
+      : null,
   };
 }
 
 function uitVideo(v: Video): Resultaat {
   return { video: v.video, naam: v.naam, duur: v.duur, review: v.review, uitleg: null,
-           bytes: v.bytes, waarschuwingen: [] };
+           bytes: v.bytes, waarschuwingen: [], export: null };
 }
 
 type Props = {
@@ -80,11 +101,15 @@ type Props = {
   /** De stand van node/HyperFrames/browser; zie `useOnderdelen`. */
   onderdelen: ReturnType<typeof useOnderdelen>;
   naarStijl: () => void;
-  onVolleKwaliteit: () => void;
+  /** Haal een foutmelding van de render weg; die woont in App. */
+  onFoutWeg: () => void;
+  /** Render op volle kwaliteit en schrijf weg volgens het exportmenu.
+   *  `toon`: daarna het bestand in Finder/Verkenner laten zien. */
+  onVolleKwaliteit: (keuze: Exportkeuze, toon: boolean) => void;
 };
 
 export default function Exporteren({
-  project, keuze, stand, onderdelen, naarStijl, onVolleKwaliteit,
+  project, keuze, stand, onderdelen, naarStijl, onFoutWeg, onVolleKwaliteit,
 }: Props) {
   const [opSchijf, setOpSchijf] = useState<Resultaat | null>(null);
   const [fout, setFout] = useState<string | null>(null);
@@ -99,6 +124,42 @@ export default function Exporteren({
   const [montageMislukt, setMontageMislukt] = useState(false);
   /** Staat de vraag open of we zonder titels gaan exporteren? */
   const [vraagZonderTitels, setVraagZonderTitels] = useState(false);
+  /** Wat deze computer kan maken; `null` zolang de engine het nog uitzoekt
+   *  (de eerste keer probeert hij elke encoder echt uit). */
+  const [kan, setKan] = useState<Exportmogelijkheden | null>(null);
+  const [exportkeuze, setExportkeuze] = useState<Exportkeuze>(() => laad(localStorage));
+  const [toonNaAfloop, setToonNaAfloop] = useState(() => laadToon(localStorage));
+  // De naam hoort bij één video: een ander project begint weer leeg. Hetzelfde
+  // project krijgt de naam terug die er stond toen je van stap wisselde.
+  useEffect(() => {
+    setKan(null);
+    setExportkeuze((k) => ({ ...k, naam: exportnaamVan(project) }));
+    if (project === null) return;
+    let geldig = true;
+    exportMogelijkheden(project)
+      .then((m) => {
+        if (!geldig) return;
+        setKan(m);
+        setExportkeuze((k) => pasAan(k, m));
+      })
+      .catch((e) => {
+        if (geldig) setFout(String(e));
+      });
+    return () => {
+      geldig = false;
+    };
+    // De vorm hoort erbij: een andere beeldverhouding is een ander canvas, en
+    // dus andere resoluties in het menu.
+  }, [project, keuze.vorm]);
+
+  function zetExportkeuze(k: Exportkeuze) {
+    setExportkeuze(k);
+    bewaar(localStorage, k);
+    onthoudExportnaam(project, k.naam);
+  }
+
+  // "Toon in Finder als het klaar is" woont sinds 13-10-2026 in App: die hoort
+  // de klaar-melding ook als dit paneel niet getekend is.
 
   // Bij het openen van de stap: staat er al een render? Dan die meteen tonen.
   //
@@ -182,7 +243,11 @@ export default function Exporteren({
       if (oordeel === "vraag") setVraagZonderTitels(true);
       return;
     }
-    onVolleKwaliteit();
+    start();
+  }
+
+  function start() {
+    onVolleKwaliteit(exportkeuze, toonNaAfloop);
   }
 
   return (
@@ -190,9 +255,15 @@ export default function Exporteren({
       <main className="podium">
         {melding !== null && (
           <div className="melding-fout" role="alert">
-            <b>De montage is niet gelukt</b>
+            <b>{stand?.soort === "fout" ? "De video is niet gelukt" : "Dat ging niet goed"}</b>
             <span className="mono">{melding}</span>
-            <button className="knop-klein" onClick={() => setFout(null)}>
+            <button
+              className="knop-klein"
+              onClick={() => {
+                setFout(null);
+                onFoutWeg();
+              }}
+            >
               Sluiten
             </button>
           </div>
@@ -219,7 +290,7 @@ export default function Exporteren({
             </b>
             <span>
               {onderdelen.stand.soort === "bezig"
-                ? `BeatCut is de titelmotor aan het klaarzetten (${Math.round(
+                ? `${EDITIE.naam} is de titelmotor aan het klaarzetten (${Math.round(
                     onderdelen.stand.percentage,
                   )} %). Wacht je daarop, dan staan de titels straks wel in de export.`
                 : "De browser die de titels tekent staat nog niet klaar. Dat is eenmalig ophalen; daarna werkt het offline."}
@@ -232,7 +303,7 @@ export default function Exporteren({
                 className="knop-klein"
                 onClick={() => {
                   setVraagZonderTitels(false);
-                  onVolleKwaliteit();
+                  start();
                 }}
               >
                 Zonder titels exporteren
@@ -242,7 +313,13 @@ export default function Exporteren({
         )}
 
         {bezig ? (
-          <Voortgangsweergave stand={stand} />
+          <Voortgangsweergave
+            stand={stand}
+            metUitvoer={
+              stand.kwaliteit === "eind" &&
+              (!isStandaard(exportkeuze) || exportkeuze.map !== "" || exportkeuze.naam !== "")
+            }
+          />
         ) : resultaat !== null ? (
           <div className="video-vlak">
             {/* key: anders blijft de speler op de vorige render hangen. */}
@@ -273,8 +350,8 @@ export default function Exporteren({
           <div className="sleepvlak">
             <b>Nog geen video</b>
             <span>
-              Kies bij Stijl een montagestijl en muziek, en klik op “Maak video”. BeatCut bedenkt de
-              montage, rendert hem en kijkt hem na.
+              Kies bij Stijl een montagestijl en muziek. Daarna loop je langs Look en Bijwerken —
+              of je slaat ze over — en maakt {EDITIE.naam} de video.
             </span>
             <button className="knop-primair" onClick={naarStijl}>
               Naar Stijl
@@ -283,23 +360,55 @@ export default function Exporteren({
         )}
       </main>
 
-      <aside className="zijbalk export">
+      <Zijbalk
+        kant="rechts"
+        sleutel="exporteren"
+        standaard={420}
+        naam="het exportpaneel"
+        klasse="export"
+      >
         <div className="groep">
           <h1 className="stap-titel">Exporteren</h1>
           <p className="stap-uitleg">
-            Hier staat wat er gemaakt is. Het formaat ligt vast vanuit Stijl.
+            Kies hoe de video de deur uit gaat. Laat je alles staan, dan krijg je een MP4 die
+            overal speelt.
           </p>
         </div>
 
         <div className="formaat-regel">
           <span className="formaat-links">
-            <b>Formaat {keuze.vorm}</b>
+            <b>Beeldverhouding {keuze.vorm}</b>
             <span>gekozen in Stijl · de kaders zijn hierop gemaakt</span>
           </span>
           <button className="knop-klein-rand" onClick={naarStijl}>
             Wijzigen in Stijl
           </button>
         </div>
+
+        {resultaat?.export != null && (
+          <div className="export-klaar" role="status">
+            <b>Geëxporteerd · {bytesTekst(resultaat.export.bytes)}</b>
+            <span className="mono">{resultaat.export.pad}</span>
+          </div>
+        )}
+
+        {kan === null ? (
+          <span className="kleine-noot">Kijken wat deze computer kan maken…</span>
+        ) : (
+          <ExportMenu
+            project={project}
+            mogelijkheden={kan}
+            keuze={exportkeuze}
+            setKeuze={zetExportkeuze}
+            toonNaAfloop={toonNaAfloop}
+            setToonNaAfloop={(aan) => {
+              setToonNaAfloop(aan);
+              bewaarToon(localStorage, aan);
+            }}
+            bezig={bezig}
+            toonIn={TOON_IN}
+          />
+        )}
 
         {resultaat?.uitleg != null && (
           <div className="voetnoot">
@@ -329,7 +438,8 @@ export default function Exporteren({
               disabled={resultaat === null}
               onClick={() => {
                 if (resultaat !== null) {
-                  revealItemInDir(resultaat.video).catch((e) => setFout(String(e)));
+                  revealItemInDir(resultaat.export?.pad ?? resultaat.video)
+                    .catch((e) => setFout(String(e)));
                 }
               }}
             >
@@ -341,32 +451,39 @@ export default function Exporteren({
           </div>
           <button
             className="knop-groot vol"
-            disabled={bezig || oordeel === "wacht"}
+            disabled={bezig || oordeel === "wacht" || kan === null}
             onClick={exporteer}
           >
-            {oordeel === "wacht" ? "Even controleren…" : "Exporteer op volle kwaliteit"}
+            {oordeel === "wacht" || kan === null ? "Even controleren…" : "Exporteer video"}
           </button>
           {titelsLopenMis && (
             <span className="kleine-noot let-op">
               {montageMislukt
-                ? "BeatCut kon niet nakijken of er titels in deze montage staan, en de titelmotor is nog niet klaar."
+                ? `${EDITIE.naam} kon niet nakijken of er titels in deze montage staan, en de titelmotor is nog niet klaar.`
                 : `${aantalTitels === 1 ? "Er staat 1 titel" : `Er staan ${aantalTitels} titels`} in deze montage, en de titelmotor is nog niet klaar.`}{" "}
-              BeatCut vraagt het voor de zekerheid nog één keer voordat hij begint.
+              {EDITIE.naam} vraagt het voor de zekerheid nog één keer voordat hij begint.
             </span>
           )}
           <span className="kleine-noot">
-            Volle kwaliteit rendert uit je originele beelden in plaats van de proxies. Zelfde stijl,
-            zelfde snedes — alleen scherper, en het duurt een stuk langer.
+            De export rendert uit je originele beelden in plaats van de proxies. Zelfde stijl,
+            zelfde snedes — alleen scherper, en het duurt een stuk langer
+            {isStandaard(exportkeuze) ? "." : "; daarna volgt nog het wegschrijven in jouw formaat."}
           </span>
         </div>
-      </aside>
+      </Zijbalk>
     </div>
   );
 }
 
-function Voortgangsweergave({ stand }: { stand: { kwaliteit: Kwaliteit; voortgang: Voortgang | null } }) {
+function Voortgangsweergave({ stand, metUitvoer }: {
+  stand: { kwaliteit: Kwaliteit; voortgang: Voortgang | null };
+  /** Komt er na het nakijken nog een omzetting? Dan staat die stap er vanaf
+   *  het begin bij — een lijst die onderweg een stap krijgt leest als uitloop. */
+  metUitvoer: boolean;
+}) {
   const vg = stand.voortgang;
-  const nu = GROEPEN.findIndex((g) => (g.fasen as readonly string[]).includes(vg?.stap ?? "voorbereiden"));
+  const groepen = GROEPEN.filter((g) => g.id !== "uitvoer" || metUitvoer || vg?.stap === "uitvoer");
+  const nu = groepen.findIndex((g) => (g.fasen as readonly string[]).includes(vg?.stap ?? "voorbereiden"));
   const procent = Math.round(vg?.percentage ?? 0);
   const resterend = vg?.resterend ?? null;
 
@@ -374,7 +491,7 @@ function Voortgangsweergave({ stand }: { stand: { kwaliteit: Kwaliteit; voortgan
     <div className="maakt">
       <h2>{stand.kwaliteit === "eind" ? "Op volle kwaliteit renderen…" : "Je video wordt gemaakt"}</h2>
       <div className="maak-stappen">
-        {GROEPEN.map((g, i) => {
+        {groepen.map((g, i) => {
           const staat = i < nu ? "klaar" : i === nu ? "bezig" : "wacht";
           return (
             <div className={`maak-stap ${staat}`} key={g.id}>
@@ -383,13 +500,19 @@ function Voortgangsweergave({ stand }: { stand: { kwaliteit: Kwaliteit; voortgan
                 <b>{g.label}</b>
                 <span>
                   {staat === "bezig"
-                    ? `${vg?.tekst ?? "bezig…"}${vg && vg.totaal > 0 ? ` · ${vg.gedaan}/${vg.totaal}` : ""}`
+                    ? `${vg?.tekst ?? "bezig…"}${
+                        // Bij het wegschrijven telt de engine tienden van seconden;
+                        // dat is geen getal om te tonen, het percentage wel.
+                        vg && vg.totaal > 1 && g.id !== "uitvoer" ? ` · ${vg.gedaan}/${vg.totaal}` : ""
+                      }`
                     : staat === "klaar"
                       ? "klaar"
                       : "wacht"}
                 </span>
               </span>
-              {g.id === "render" && staat === "bezig" && <span className="mono procent">{procent}%</span>}
+              {(g.id === "render" || g.id === "uitvoer") && staat === "bezig" && (
+                <span className="mono procent">{procent}%</span>
+              )}
             </div>
           );
         })}

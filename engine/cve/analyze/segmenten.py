@@ -45,6 +45,13 @@ class Gewichten:
     gezicht: float = 0.15
     te_donker: float = -0.30
     geluid: float = 0.0
+    # Hoogtepunten (13-10-2026, `analyze/hoogtepunten.py`): niet "is het mooi"
+    # maar "gebeurt er iets". Een kreet of klap boven de achtergrond van de
+    # clip, een sprong boven de gewone beweging, en een clip die iets laat
+    # zien wat de andere niet laten zien.
+    audiopiek: float = 0.15
+    actiepiek: float = 0.10
+    nieuwheid: float = 0.10
     # Hoeveel een langer segment mag winnen van een korter. 0 = geen voorkeur.
     lengte_voorkeur: float = 0.06
     # Hoe zwaar het slechtste moment in een venster meetelt. Een segment dat
@@ -127,6 +134,12 @@ def scoor_tijdlijn(clip: dict, gewichten: Gewichten) -> tuple[np.ndarray, dict[s
         for a, b in audio.get("stiltes", []):
             geluid[(tijden >= a) & (tijden < b)] = 0.0
     onderdelen["geluid"] = geluid
+
+    # Hoogtepunten. Een analyse van vóór 13-10-2026 heeft deze reeksen niet;
+    # dan tellen ze als nul en verandert er niets aan de keuze.
+    onderdelen["audiopiek"] = _reeks(reeks, "audiopiek", n)
+    onderdelen["actiepiek"] = _reeks(reeks, "actiepiek", n)
+    onderdelen["nieuwheid"] = np.full(n, float(clip.get("nieuwheid", 0.0)))
 
     score = np.zeros(n)
     for naam, gewicht in gewichten.signalen().items():

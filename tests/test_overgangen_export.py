@@ -67,3 +67,44 @@ def test_overgangen_mengen_alleen_binnen_hun_venster(lookproject):  # noqa: F811
     a_eind, b = snede[2 * N - 1], snede[2 * N + 4]
     m = met[2 * N + 4]
     assert verschil(m, b) > 1.0 and verschil(m, a_eind) > 1.0
+
+
+@nodig_ffmpeg
+def test_zonder_compositor_meldt_de_render_welke_overgangen_een_snede_worden(
+    lookproject, monkeypatch  # noqa: F811
+):
+    """Een edl.json van toen de compositor aan stond kan overgangen bevatten
+    die de ffmpeg-keten niet kan. Die worden een harde snede; dat hoort in het
+    log en bij de waarschuwingen te staan, niet stil te gebeuren (§4.4)."""
+    project, pdir, _ = lookproject
+    monkeypatch.setenv("BEATCUT_COMPOSITOR", "0")
+    _edl(project, ("whip_pan", "crossfade")).schrijf(pdir / "edl.json")
+    regels: list[str] = []
+    waarschuwingen: list[str] = []
+
+    render_mod.render(project, opties=render_mod.RenderOpties(modus="preview"),
+                      log=regels.append, waarschuwingen=waarschuwingen)
+
+    gemeld = [r for r in regels if r.startswith("Let op:") and "whip_pan" in r]
+    assert len(gemeld) == 1, regels
+    assert "1x" in gemeld[0] and "snede" in gemeld[0]
+    # crossfade kan de ffmpeg-keten wel (als in-fade); die hoort er niet bij.
+    assert "crossfade" not in gemeld[0]
+    assert any("whip_pan" in w for w in waarschuwingen)
+
+
+@nodig_ffmpeg
+def test_zonder_compositor_zwijgt_de_render_als_alles_te_renderen_is(
+    lookproject, monkeypatch  # noqa: F811
+):
+    project, pdir, _ = lookproject
+    monkeypatch.setenv("BEATCUT_COMPOSITOR", "0")
+    _edl(project, ("dip_zwart", "crossfade")).schrijf(pdir / "edl.json")
+    regels: list[str] = []
+    waarschuwingen: list[str] = []
+
+    render_mod.render(project, opties=render_mod.RenderOpties(modus="preview"),
+                      log=regels.append, waarschuwingen=waarschuwingen)
+
+    assert not [r for r in regels if "snede" in r], regels
+    assert waarschuwingen == []

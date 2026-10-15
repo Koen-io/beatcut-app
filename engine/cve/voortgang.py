@@ -35,6 +35,21 @@ RENDER_FASEN: list[tuple[str, str, float]] = [
     ("nakijken", "De video nakijken", 0.20),
 ]
 
+# Kiest de gebruiker in het exportmenu iets anders dan wat de render zelf
+# maakt, dan komt er een omzetting achteraan. Die krijgt 15 % van de balk; de
+# rest schuift naar rato op. Geschat, niet gemeten: hoe lang het duurt hangt
+# af van de gekozen codec (ProRes in software is trager dan H.264 op de chip).
+UITVOER_AANDEEL = 0.15
+
+
+def render_fasen_met_uitvoer() -> list[tuple[str, str, float]]:
+    rest = 1.0 - UITVOER_AANDEEL
+    return [
+        *[(naam, tekst, round(gewicht * rest, 4)) for naam, tekst, gewicht in RENDER_FASEN],
+        ("uitvoer", "Wegschrijven in jouw formaat", UITVOER_AANDEEL),
+    ]
+
+
 # De wizard doet het hele traject in één keer. Gemeten op 21 clips van samen
 # 5,7 minuten: inlezen 93 s, analyseren 8 s, monteren 1 s, renderen 20 s,
 # nakijken 10 s. Inlezen is dus verreweg het zwaarst - dat is ook precies
@@ -136,6 +151,12 @@ def meld(project: str, fase: str, klaar: int = 0, totaal: int = 0) -> None:
     with _slot:
         s = _standen.get(project)
         if s is None:
+            return
+        # Een fase die niet in de verdeling staat (de render meldt "look"
+        # tussen het samenstellen door) heeft geen plek op de balk. `plek()`
+        # geeft daarvoor het éínde terug, en dan sprong de balk naar 100 %
+        # terwijl geluid, titels en nakijken nog moesten komen (05-10-2026).
+        if all(naam != fase for naam, _, _ in s.fasen):
             return
         basis, breedte, tekst = s.plek(fase)
         s.fase = fase

@@ -22,8 +22,6 @@ consistentie:      0.45   # over 5 seconden mag niets wegzakken
 min_shot:          3.0    # alleen de terugval als er geen muziek ligt
 max_shot:          6.5    # informatief; de regisseur leest dit niet
 drops:             beeld
-opening_extra:     1.0    # nog niet gebouwd; niets leest dit
-slot_extra:        1.5    # nog niet gebouwd; niets leest dit
 ```
 
 ## Beweging in het beeld

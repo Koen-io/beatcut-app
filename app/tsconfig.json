@@ -12,6 +12,11 @@
     "moduleResolution": "bundler",
     "allowImportingTsExtensions": true,
     "resolveJsonModule": true,
+    // `@editie` is in Vite een alias naar app/edities/<BEATCUT_EDITIE>/ (zie
+    // vite.config.ts). tsc kent die niet en typt tegen de standaardeditie;
+    // `src/editie.ts` legt daar het type `Editie` overheen, zodat een veld dat
+    // bij BeatCut null is (motto, logo) in een andere editie gewoon mag.
+    "paths": { "@editie/*": ["./edities/beatcut/*"] },
     "isolatedModules": true,
     "noEmit": true,
     "jsx": "react-jsx",

@@ -5,7 +5,12 @@ import ReactDOM from "react-dom/client";
 import "@fontsource-variable/geist";
 import "@fontsource-variable/geist-mono";
 import "./styles.css";
+// Ná styles.css: de editie legt haar eigen tokens over de standaard heen.
+import { EDITIE } from "./editie";
 import App from "./App";
+
+document.title = EDITIE.naam;
+document.documentElement.dataset.editie = EDITIE.id;
 
 ReactDOM.createRoot(document.getElementById("app") as HTMLElement).render(
   <React.StrictMode>

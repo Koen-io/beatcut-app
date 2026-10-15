@@ -8,6 +8,8 @@ import {
   type EngineGebeurtenis,
   type OnderdelenStatus,
 } from "./engine";
+import { standNaFout } from "./onderdelenstand";
+import { APP_NAAM } from "./naam.ts";
 
 export type OnderdelenStand =
   | { soort: "kijken" }
@@ -98,6 +100,17 @@ export function useOnderdelen(online: boolean) {
     };
   }, [online, lees, start]);
 
+  // Hoeveel er al binnen is, in megabytes. Dat getal staat in `status` en komt
+  // van wat er op schijf staat; de voortgangsmelding geeft alleen een
+  // percentage en een stapnaam. Zonder deze lus blijft er "0 MB van 1,2 GB"
+  // staan terwijl de balk loopt, en dan is het getal een versiering in plaats
+  // van een meting.
+  useEffect(() => {
+    if (stand.soort !== "bezig") return;
+    const id = setInterval(() => void lees().catch(() => {}), 1500);
+    return () => clearInterval(id);
+  }, [stand.soort, lees]);
+
   useEffect(() => {
     const af = listen<EngineGebeurtenis>(GEBEURTENIS, ({ payload }) => {
       if (payload.data.werk !== "onderdelen") return;
@@ -111,7 +124,7 @@ export function useOnderdelen(online: boolean) {
         setStand({ soort: "klaar" });
         void lees().catch(() => {});
       } else {
-        setStand({ soort: "fout", bericht: payload.data.fout });
+        setStand(standNaFout(payload.data));
         void lees().catch(() => {});
       }
     });
@@ -130,7 +143,7 @@ export function useOnderdelen(online: boolean) {
   let chipUitleg = "";
   if (stand.soort === "bezig") {
     chip = `Titels klaarzetten… ${Math.round(stand.percentage)} %`;
-    chipUitleg = "BeatCut zet de titelmotor voor de export klaar.";
+    chipUitleg = `${APP_NAAM} zet de titelmotor voor de export klaar.`;
   } else if (stand.soort === "fout") {
     chip = "Titels klaarzetten mislukt";
     chipUitleg = stand.bericht;

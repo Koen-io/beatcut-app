@@ -14,7 +14,7 @@ import sys
 import threading
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 
 from . import media, paths
 
@@ -42,6 +42,8 @@ class Status:
     renders: list[str] = field(default_factory=list)
     gewijzigd: str | None = None
     bezig: str | None = None
+    # Video's die bij een teruggezette kopie nog niet terug zijn (`ontbrekend`).
+    ontbreekt: list[str] = field(default_factory=list)
 
     @property
     def stap(self) -> str:
@@ -63,6 +65,16 @@ class Status:
 
 # Lopende achtergrondtaken per project: {"project": "analyse 3/21"}
 _bezig: dict[str, str] = {}
+# Projecten die ná de lopende ronde nóg een ronde moeten. Dit hoort hier en
+# niet in de interface: alleen de engine weet wanneer een ronde afloopt, en de
+# tijdschatting kan de bijgeboekte clips alleen meerekenen als de wachtrij in
+# dezelfde meting zit (zie `doorvoer.Meter`).
+_nogmaals: set[str] = set()
+# Projecten met een lópende verwerklus. Dit is iets anders dan `_bezig`: daar
+# staat ook een render of een hermontage in, en díe legen `_nogmaals` nooit.
+# Een ronde bijboeken mag dus alleen als er echt een lus draait die hem
+# oppakt — anders beloofde de interface werk dat nooit gebeurde.
+_draaiend: set[str] = set()
 _slot = threading.Lock()
 
 
@@ -88,6 +100,17 @@ def neem_bezig(project: str, tekst: str) -> bool:
         return True
 
 
+def ingepland(project: str) -> bool:
+    """Staat er een extra ronde klaar voor dit project?
+
+    Alleen waar als er ook echt een verwerklus draait die hem oppakt — zie
+    `_draaiend`. De interface meldt dit aan de gebruiker, dus het mag geen
+    belofte zijn die niemand nakomt.
+    """
+    with _slot:
+        return project in _nogmaals
+
+
 def is_bezig(project: str) -> str | None:
     with _slot:
         return _bezig.get(project)
@@ -108,6 +131,7 @@ def status(naam: str) -> Status:
     bronnen = media.vind_bronnen(p / "bronnen")
     muziek = media.vind_muziek(p / "muziek")
     s.aantal_clips = len(bronnen)
+    s.ontbreekt = sorted(ontbrekend(naam))
     s.heeft_muziek = bool(muziek)
     s.muziek = muziek[0].name if muziek else None
 
@@ -133,7 +157,8 @@ def alle() -> list[Status]:
     if not paths.PROJECTEN.exists():
         return []
     namen = sorted(
-        (d.name for d in paths.PROJECTEN.iterdir() if d.is_dir() and not d.name.startswith(".")),
+        # `_`: daar staat wat bij het verwijderen bewaard bleef (`opruimen.BEWAARD`).
+        (d.name for d in paths.PROJECTEN.iterdir() if d.is_dir() and not d.name.startswith((".", "_"))),
     )
     lijst = [status(n) for n in namen]
     lijst.sort(key=lambda s: s.gewijzigd or "", reverse=True)
@@ -200,22 +225,28 @@ def _zelfde_bestand(a: Path, b: Path) -> bool:
     return _rand(a) == _rand(b)
 
 
-def _vrije_naam(doel: Path, bron: Path) -> Path | None:
+def _vrije_naam(doel: Path, bron: Path, gereserveerd: frozenset[str] = frozenset()) -> Path | None:
     """Een vrij pad voor deze bron, of None als hij er al staat.
+
+    `gereserveerd`: namen (kleine letters) die wachten op een video die nog
+    terug moet komen (`ontbrekend`). Die plek is niet vrij, ook al is hij leeg.
 
     **Waarom dit moet:** twee kaartjes uit dezelfde camera leveren allebei een
     `IMG_0001.MOV`. Zonder deze controle overschreef de tweede de eerste
     zonder een woord, en kreeg een bestaande montage stilletjes andere beelden.
     """
-    if not doel.exists():
+    def bezet(k: Path) -> bool:
+        return k.exists() or k.name.casefold() in gereserveerd
+
+    if not bezet(doel):
         return doel
-    if _zelfde_bestand(bron, doel):
+    if doel.exists() and _zelfde_bestand(bron, doel):
         return None
     for n in range(2, 1000):
         kandidaat = doel.with_name(f"{doel.stem}-{n}{doel.suffix}")
-        if not kandidaat.exists():
+        if not bezet(kandidaat):
             return kandidaat
-        if _zelfde_bestand(bron, kandidaat):
+        if kandidaat.exists() and _zelfde_bestand(bron, kandidaat):
             return None
     raise ValueError(f"te veel bestanden met de naam {doel.name}")
 
@@ -243,6 +274,108 @@ def _uitvouwen(paden: list[str], uit: list[dict]) -> list[Path]:
     return uitgevouwen
 
 
+HERKOMST = "herkomst.json"
+
+
+def herkomst(project: str) -> dict[str, str]:
+    """Per geïmporteerde video: waar het origineel stond toen hij erbij kwam.
+
+    Een project bewaart een kopie van elke video, geen verwijzing. Wie het
+    project verwijdert en later terugzet heeft die kopieën niet meer; dan is
+    dit de enige plek die nog weet waar de originelen te vinden zijn.
+    """
+    try:
+        d = json.loads((paths.PROJECTEN / project / HERKOMST).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    return {str(k): str(v) for k, v in d.items()} if isinstance(d, dict) else {}
+
+
+def onthoud_herkomst(project: str, nieuw: dict[str, str]) -> None:
+    if not nieuw:
+        return
+    (paths.PROJECTEN / project / HERKOMST).write_text(
+        json.dumps({**herkomst(project), **nieuw}, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+
+
+ONTBREEKT = "ontbreekt.json"
+
+
+def ontbrekend(project: str) -> dict[str, dict]:
+    """Video's die bij dit project horen maar er nog niet (terug) zijn.
+
+    Geschreven door `opruimen.zet_terug` als een kopie teruggezet wordt terwijl
+    niet alle originelen te vinden waren: `{naam: {"bytes": n, "oud": pad}}`.
+    Zolang hier iets staat doet het project twee dingen anders: een video die
+    erbij komt en op een ontbrekende past krijgt díe naam (`voeg_toe`), en er
+    wordt niet opnieuw ingelezen (`verwerk`) — de teruggezette ingest en
+    analyse beschrijven ook de clips die er nog niet zijn.
+
+    Het bestand kan uit een zip van buiten komen: wat niet klopt telt niet.
+    """
+    try:
+        d = json.loads((paths.PROJECTEN / project / ONTBREEKT).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    uit: dict[str, dict] = {}
+    for naam, w in d.items() if isinstance(d, dict) else ():
+        if (
+            not isinstance(w, dict)
+            or type(w.get("bytes")) is not int
+            or PureWindowsPath(naam).name != naam
+            or Path(naam).suffix.lower() not in media.VIDEO_EXTENSIES
+            or (paths.PROJECTEN / project / "bronnen" / naam).exists()
+        ):
+            continue
+        oud = w.get("oud")
+        uit[naam] = {"bytes": w["bytes"], "oud": oud if isinstance(oud, str) and oud else None}
+    return uit
+
+
+def zet_ontbrekend(project: str, wacht: dict[str, dict]) -> None:
+    pad = paths.PROJECTEN / project / ONTBREEKT
+    if wacht:
+        pad.write_text(json.dumps(wacht, ensure_ascii=False, indent=2), encoding="utf-8")
+    else:
+        pad.unlink(missing_ok=True)
+
+
+def _past_op(bron: Path, wacht: dict[str, dict]) -> str | None:
+    """Is dit een van de video's waar het project op wacht? Geeft de naam die
+    hij in het project had. Zelfde regel als bij terugzetten: de naam (die in
+    het project, of die van het origineel) én de grootte moeten kloppen."""
+    grootte = bron.stat().st_size
+    for naam, w in wacht.items():
+        namen = {naam.casefold()}
+        if w["oud"]:
+            namen.add(PureWindowsPath(w["oud"]).name.casefold())
+        if w["bytes"] == grootte and bron.name.casefold() in namen:
+            return naam
+    return None
+
+
+def _kopieer_veilig(bron: Path, doel: Path) -> None:
+    """Kopieer naar een tijdelijke naam en hernoem pas als alles er staat.
+
+    Een kopie van 400 MB die halverwege afbreekt (schijf vol, kabel eruit,
+    app dicht) liet daarvóór een half bestand achter op de eindnaam. De
+    volgende poging zag "staat al in het project" (zelfde naam, andere
+    grootte → `-2`), en de montage kende een clip die niet te lezen was.
+    Een naam die met `.` begint telt nergens als video (`vind_bronnen`).
+    """
+    deel = doel.with_name(f".{doel.name}.deel")
+    try:
+        shutil.copy2(bron, deel)
+        if deel.stat().st_size != bron.stat().st_size:
+            raise OSError(f"kopie van {bron.name} is niet compleet")
+        deel.replace(doel)
+    except BaseException:
+        deel.unlink(missing_ok=True)
+        raise
+
+
 def voeg_toe(project: str, paden: list[str]) -> list[dict]:
     """Neem bestanden van elders op in het project.
 
@@ -254,26 +387,46 @@ def voeg_toe(project: str, paden: list[str]) -> list[dict]:
     ponytail: kopieren kost schijfruimte - 21 clips van 4K60 is zo 6 GB. Een
     hardlink zou gratis zijn op dezelfde schijf, maar wijkt af van wat de
     Studio deed; pas doen als de ruimte echt knelt.
+
+    Wacht het project nog op video's van een teruggezette kopie (`ontbrekend`),
+    dan komt een video die daarop past onder de naam die hij in het project
+    had — niet onder de naam die toevallig vrij is. Twee kaartjes met elk een
+    `IMG_0001.MOV` wisselen anders van plek, en de montage kent ze bij naam.
     """
     uit: list[dict] = []
-    for bron in _uitvouwen(paden, uit):
-        try:
-            doel, soort = _bestemming(project, bron.name)
-            vrij = _vrije_naam(doel, bron)
-        except ValueError as e:
-            uit.append({"naam": bron.name, "fout": str(e)})
-            continue
-        if vrij is None:
-            uit.append(
-                {"naam": doel.name, "soort": soort, "bytes": doel.stat().st_size,
-                 "overgeslagen": "staat al in het project"}
-            )
-            continue
-        shutil.copy2(bron, vrij)
-        rij = {"naam": vrij.name, "soort": soort, "bytes": vrij.stat().st_size}
-        if vrij.name != bron.name:
-            rij["hernoemd_van"] = bron.name
-        uit.append(rij)
+    vandaan: dict[str, str] = {}
+    wacht = ontbrekend(project)
+    # Ook als een kopie halverwege mislukt: van wat er al staat moet de
+    # herkomst bewaard zijn, want een tweede poging slaat die bestanden over.
+    try:
+        for bron in _uitvouwen(paden, uit):
+            try:
+                doel, soort = _bestemming(project, bron.name)
+                verwacht = _past_op(bron, wacht) if soort == "video" else None
+                if verwacht is not None:
+                    vrij = doel.with_name(verwacht)
+                    del wacht[verwacht]
+                else:
+                    vrij = _vrije_naam(doel, bron, frozenset(n.casefold() for n in wacht))
+            except ValueError as e:
+                uit.append({"naam": bron.name, "fout": str(e)})
+                continue
+            if vrij is None:
+                uit.append(
+                    {"naam": doel.name, "soort": soort, "bytes": doel.stat().st_size,
+                     "overgeslagen": "staat al in het project"}
+                )
+                continue
+            _kopieer_veilig(bron, vrij)
+            rij = {"naam": vrij.name, "soort": soort, "bytes": vrij.stat().st_size}
+            if vrij.name != bron.name:
+                rij["hernoemd_van"] = bron.name
+            if soort == "video":
+                vandaan[vrij.name] = str(bron.resolve())
+            uit.append(rij)
+    finally:
+        onthoud_herkomst(project, vandaan)
+        zet_ontbrekend(project, wacht)
     return uit
 
 
@@ -374,6 +527,26 @@ def clips(project: str) -> list[dict]:
                     ),
                 }
             )
+        # Wat niet te lezen was staat er ook, grijs en uit — anders zoekt de
+        # gebruiker naar een clip die "toch in de map staat".
+        for o in ing.get("overgeslagen") or []:
+            if not isinstance(o, dict) or not isinstance(o.get("bestand"), str):
+                continue
+            rijen.append(
+                {
+                    "naam": o["bestand"],
+                    "id": None,
+                    "bron": str(pdir / "bronnen" / o["bestand"]),
+                    "duur": 0.0,
+                    "breedte": 0,
+                    "hoogte": 0,
+                    "fps": 0.0,
+                    "score": None,
+                    "aan": False,
+                    "thumbnail": None,
+                    "fout": str(o.get("fout") or "niet te lezen"),
+                }
+            )
         return rijen
 
     for p in media.vind_bronnen(pdir / "bronnen"):
@@ -381,6 +554,14 @@ def clips(project: str) -> list[dict]:
             info = media.probe(p)
         except Exception as e:  # noqa: BLE001 — onleesbaar bestand is geen reden tot stilstand
             print(f"clip overgeslagen ({p.name}): {e}", file=sys.stderr)
+            rijen.append(
+                {
+                    "naam": p.name, "id": None, "bron": str(p), "duur": 0.0,
+                    "breedte": 0, "hoogte": 0, "fps": 0.0, "score": None,
+                    "aan": False, "thumbnail": None,
+                    "fout": (str(e).strip().splitlines() or ["niet te lezen"])[0][:160],
+                }
+            )
             continue
         rijen.append(
             {
@@ -432,10 +613,16 @@ def moet_inlezen(project: str, *, opnieuw: bool = False) -> bool:
     if opnieuw or not pad.exists():
         return True
     try:
-        bekend = {c["bestand"] for c in json.loads(pad.read_text(encoding="utf-8"))["clips"]}
+        clips = json.loads(pad.read_text(encoding="utf-8"))["clips"]
+        bekend = {c["bestand"] for c in clips}
+        proxies = [p / "proxies" / c["proxy"] for c in clips if c.get("proxy")]
     except (json.JSONDecodeError, OSError, KeyError, TypeError):
         return True
-    return bekend != {q.name for q in media.vind_bronnen(p / "bronnen")}
+    if bekend != {q.name for q in media.vind_bronnen(p / "bronnen")}:
+        return True
+    # Een teruggezette kopie zonder voorvertoningen: de ingest klopt met wat er
+    # ligt, maar er is niets om af te spelen. Inlezen maakt alleen wat mist.
+    return any(not q.exists() for q in proxies)
 
 
 def verwerk(
@@ -444,15 +631,44 @@ def verwerk(
     stijl: str = "landschap",
     opnieuw: bool = False,
     melder=None,
-) -> threading.Thread:
+) -> threading.Thread | None:
     """Ingest + analyse in de achtergrond, met voortgang voor de interface.
 
     `melder(soort, data)` wordt geroepen met soort "voortgang", "klaar" of
     "fout". De oude Studio liet de browser pollen op `is_bezig()`; de app wil
     het geduwd krijgen over stdio. Beide werken: `zet_bezig` blijft gevuld.
+
+    **Loopt er al een ronde, dan wordt er één bijgeboekt en komt er `None`
+    terug.** De beller hoeft dus niet zelf bij te houden dat er na deze ronde
+    nog een moet; dat deed de interface eerst, en die kon het alleen doen door
+    de tijdschatting halverwege opnieuw te laten beginnen.
     """
     from .analyse import analyseer
+    from .doorvoer import Meter
     from .ingest import ingest as _ingest
+
+    # Een teruggezet project dat nog op video's wacht: inlezen zou de ingest
+    # en de analyse opnieuw schrijven met alleen wat er nu ligt, en dan is wat
+    # er over de ontbrekende clips bekend was weg.
+    if ontbrekend(project):
+        return None
+
+    with _slot:
+        if project in _draaiend:
+            _nogmaals.add(project)
+            return None
+        if _bezig.get(project):
+            # Er loopt ánder werk: een render, of de montage opnieuw bedenken.
+            # Daar hangt geen wachtrij aan, dus niets bijboeken en niets
+            # beloven — `ingepland()` zegt dan eerlijk `false`.
+            return None
+        _draaiend.add(project)
+        _bezig[project] = "Starten…"
+
+    # "afronden" is de staart van de analyse (clipaudio, scenes, muziek,
+    # segmenten). Hij staat hier in de lijst omdat hij vanaf het begin moet
+    # meetellen in "nog ±", ook al begint hij pas als laatste.
+    meter = Meter(["inlezen", "analyseren", "afronden"])
 
     def meld(stap: str, tekst: str, gedaan: int = 0, totaal: int = 0) -> None:
         zet_bezig(project, tekst)
@@ -466,6 +682,7 @@ def verwerk(
                     "gedaan": gedaan,
                     "totaal": totaal,
                     "tekst": tekst,
+                    **meter.naar_dict(),
                 },
             )
 
@@ -479,28 +696,59 @@ def verwerk(
         return log
 
     def werk():
-        try:
-            paths.project_dir(project)
-            if moet_inlezen(project, opnieuw=opnieuw):
-                meld("inlezen", "Beelden inlezen…")
-                _ingest(project, overschrijf=opnieuw, log=logger("inlezen", "Beelden inlezen"))
-            meld("analyseren", "Analyseren…")
-            analyseer(project, stijl=stijl, log=logger("analyseren", "Analyseren"))
-        except Exception as e:  # noqa: BLE001
-            import sys as _sys
-            import traceback as _tb
-
-            # Naar het engine-log: zonder regelnummer is 'NaN to integer' raden.
-            _tb.print_exc(file=_sys.stderr)
-            zet_bezig(project, f"FOUT: {e}")
-            if melder is not None:
-                melder(
-                    "fout",
-                    {"werk": "verwerk", "project": project,
-                     "fout": str(e), "soort": type(e).__name__},
+        ronde_opnieuw = opnieuw
+        while True:
+            try:
+                paths.project_dir(project)
+                if moet_inlezen(project, opnieuw=ronde_opnieuw):
+                    meld("inlezen", "Beelden inlezen…")
+                    _ingest(
+                        project,
+                        overschrijf=ronde_opnieuw,
+                        log=logger("inlezen", "Beelden inlezen"),
+                        meter=meter,
+                    )
+                meld("analyseren", "Analyseren…")
+                analyseer(
+                    project, stijl=stijl, log=logger("analyseren", "Analyseren"), meter=meter
                 )
-            return
-        zet_bezig(project, None)
+            except Exception as e:  # noqa: BLE001
+                import sys as _sys
+                import traceback as _tb
+
+                # Naar het engine-log: zonder regelnummer is 'NaN to integer' raden.
+                _tb.print_exc(file=_sys.stderr)
+                # Alles loslaten. Een project dat faalde is niet "bezig": bleef
+                # de foutmelding in `_bezig` staan, dan weigert `neem_bezig()`
+                # daarna élke render en elke hermontage, en houdt `bezig` ook de
+                # updater tegen. De fout gaat naar de interface, niet in de
+                # boekhouding.
+                with _slot:
+                    _nogmaals.discard(project)
+                    _draaiend.discard(project)
+                    _bezig.pop(project, None)
+                if melder is not None:
+                    melder(
+                        "fout",
+                        {"werk": "verwerk", "project": project,
+                         "fout": str(e), "soort": type(e).__name__},
+                    )
+                return
+            # Wachtrij nakijken en de claim loslaten onder hetzelfde slot.
+            # Tussen "geen ronde meer" en "niet meer bezig" paste anders een
+            # nieuw verzoek: dat belandde in `_nogmaals` en werd door niemand
+            # meer opgepakt, terwijl de interface "ingepland" te horen kreeg.
+            with _slot:
+                if project in _nogmaals:
+                    _nogmaals.discard(project)
+                    # Een bijgeboekte ronde bestaat omdat er clips bij kwamen;
+                    # de proxies die er al staan hoeven niet opnieuw.
+                    ronde_opnieuw = False
+                    continue
+                _draaiend.discard(project)
+                _bezig.pop(project, None)
+                break
+        meter.bewaar()
         if melder is not None:
             melder(
                 "klaar",
@@ -525,6 +773,7 @@ def naar_dict(s: Status) -> dict:
         "renders": s.renders,
         "gewijzigd": s.gewijzigd,
         "bezig": s.bezig,
+        "ontbreekt": s.ontbreekt,
         "stap": s.stap,
         "klaar": s.klaar_om_te_monteren,
     }

@@ -27,6 +27,12 @@ struct Uniforms {
   afw1  : vec4<f32>,
   // lichtlek, breedbeeld, filmtrilling, kleurrand
   afw2  : vec4<f32>,
+  // Kleurafstemming per bron (13-10-2026): versterking r, g, b (1 = laat
+  // staan), w vrij. De speler zet hier de waarden uit `VideoBlok.kleur`; de
+  // export zet 1, want daar heeft ffmpeg de blokken al afgestemd vóór deze
+  // pas (`render._kleurmatch_filter`). Zo zien beide hetzelfde beeld.
+  kleurA : vec4<f32>,
+  kleurB : vec4<f32>,
 }
 
 @group(0) @binding(0) var<uniform> u : Uniforms;

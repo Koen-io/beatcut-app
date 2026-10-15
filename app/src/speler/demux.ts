@@ -17,7 +17,14 @@ import { convertFileSrc } from "@tauri-apps/api/core";
  *  vloeiender en kost geheugen; op 540p is een frame ~1,5 MB op de GPU. */
 const BUFFER = 12;
 
-export type ProxyInfo = { breedte: number; hoogte: number; fps: number; duur: number };
+export type ProxyInfo = {
+  breedte: number;
+  hoogte: number;
+  fps: number;
+  duur: number;
+  /** Grootte van het bestand in het geheugen. */
+  bytes: number;
+};
 
 /** Hoeveel `VideoFrame`s er op dit moment openstaan, en hoeveel er in totaal
  *  langs zijn geweest. Alleen voor de QA-brug: een frame dat niet gesloten
@@ -125,7 +132,14 @@ export class Proxy {
       hoogte: t.hoogte,
       fps: t.fps,
       duur: t.duur,
+      bytes: ruw.byteLength,
     });
+  }
+
+  /** Hoeveel geheugen deze proxy vasthoudt (de samples wijzen in het
+   *  bestand); de speler ruimt op aan de hand hiervan, zie `proxycache.ts`. */
+  get bytes(): number {
+    return this.info.bytes;
   }
 
   /** De index van de keyframe die op of vóór `t` (seconden) in beeld komt.

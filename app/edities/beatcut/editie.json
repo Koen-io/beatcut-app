@@ -1,0 +1,13 @@
+{
+  "id": "beatcut",
+  "naam": "BeatCut",
+  "kort": "BeatCut",
+  "ondertitel": "Offline & Automatisch video's bewerken - Snel en Simpel",
+  "motto": null,
+  "regel": "montage altijd lokaal",
+  "logo": null,
+  "updates": {
+    "soort": "publiek",
+    "repo": "Koen-io/beatcut-releases"
+  }
+}

@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import contextlib
 import json
+import os
 import sys
 import threading
 import traceback
@@ -74,7 +75,19 @@ def methode(naam: str) -> Callable[[_Methode], _Methode]:
 
 @methode("hallo")
 def _hallo(_: dict[str, Any]) -> dict[str, Any]:
-    return {"engine": "beatcut", "versie": __version__, "protocol": PROTOCOL, "methodes": sorted(METHODES)}
+    from . import editie, paths
+
+    return {
+        "engine": "beatcut",
+        "versie": __version__,
+        "protocol": PROTOCOL,
+        "methodes": sorted(METHODES),
+        # Onder welke naam deze engine draait (BEATCUT_APPNAAM); de app toont
+        # dezelfde naam, en zo is in de logs te zien of ze het eens zijn.
+        "editie": editie.NAAM,
+        "steunmap": str(paths.steun_map()),
+        "projecten": str(paths.PROJECTEN),
+    }
 
 
 @methode("doctor")
@@ -110,9 +123,11 @@ def _bezig(_: dict[str, Any]) -> dict[str, Any]:
     updater de app meteen af, en dat mag nooit midden in een render, een
     analyse of een muziekgeneratie gebeuren.
     """
-    from . import muziekgen, muziekinstall, onderdelen, projecten
+    from . import muziekgen, muziekinstall, onderdelen, projecten, spraakinstall
 
     werk = [{"project": n, "tekst": t} for n, t in sorted(projecten.alles_bezig().items())]
+    if spraakinstall.is_bezig():
+        werk.append({"project": "", "tekst": "Spraakmodel ophalen…"})
     for n in sorted(muziekgen.bezige_projecten()):
         werk.append({"project": n, "tekst": "Muziek componeren…"})
     if muziekinstall.is_bezig():
@@ -127,6 +142,76 @@ def _project_maak(p: dict[str, Any]) -> dict[str, Any]:
     from .projecten import maak, naar_dict
 
     return naar_dict(maak(_vereist(p, "naam")))
+
+
+@methode("project.omvang")
+def _project_omvang(p: dict[str, Any]) -> dict[str, Any]:
+    """Wat het project op schijf inneemt, per soort. Voor de verwijderdialoog."""
+    from . import opruimen
+
+    return opruimen.omvang(_vereist(p, "project"))
+
+
+@methode("project.verwijder")
+def _project_verwijder(p: dict[str, Any]) -> dict[str, Any]:
+    """Project naar de prullenbak. `weg` noemt wat mee weg gaat (`kopieen`,
+    `muziek`, `exports`); de rest verhuist naar `_Bewaard/`. Met `kopie` (een
+    pad) wordt er eerst een `.zip` geschreven — mislukt die, dan gebeurt er
+    verder niets.
+
+    Antwoordt pas als het klaar is. Verplaatsen binnen één schijf is een
+    kwestie van milliseconden; alleen een kopie mét proxies kost een paar
+    seconden, en zolang staat de dialoog op "bezig".
+    """
+    from . import opruimen
+
+    weg = p.get("weg")
+    if weg is not None and not isinstance(weg, list):
+        raise TypeError("'weg' moet een lijst zijn")
+    return opruimen.verwijder(
+        _vereist(p, "project"),
+        weg=[str(s) for s in weg] if weg is not None else None,
+        kopie=str(p["kopie"]) if p.get("kopie") else None,
+        kopie_proxies=bool(p.get("kopie_proxies")),
+    )
+
+
+def _zoek(p: dict[str, Any]) -> list[str]:
+    zoek = p.get("zoek") or []
+    if not isinstance(zoek, list):
+        raise TypeError("'zoek' moet een lijst zijn")
+    return [str(q) for q in zoek]
+
+
+@methode("project.kopie")
+def _project_kopie(p: dict[str, Any]) -> dict[str, Any]:
+    """Wat er in een kopie-zip zit, vóór het terugzetten. Schrijft niets.
+
+    `naam` is de naam die de gebruiker wil (anders die uit de kopie); `zoek`
+    zijn mappen of bestanden waar de video's nu staan.
+    """
+    from . import opruimen
+
+    return opruimen.bekijk_kopie(
+        _vereist(p, "pad"), naam=str(p.get("naam") or "") or None, zoek=_zoek(p)
+    )
+
+
+@methode("project.terugzetten")
+def _project_terugzetten(p: dict[str, Any]) -> dict[str, Any]:
+    """Maak van een kopie-zip weer een project. Overschrijft nooit iets.
+
+    Geeft de status van het nieuwe project, plus welke video's er weer bij
+    zijn (`gekoppeld`), welke niet te vinden waren (`ontbreekt`) en of er
+    opnieuw ingelezen moet worden (`verwerken`).
+    """
+    from . import opruimen
+    from .projecten import naar_dict, status
+
+    uit = opruimen.zet_terug(
+        _vereist(p, "pad"), naam=str(p.get("naam") or "") or None, zoek=_zoek(p)
+    )
+    return {**naar_dict(status(uit["naam"])), **uit}
 
 
 @methode("project.voegtoe")
@@ -146,16 +231,39 @@ def _project_verwerk(p: dict[str, Any]) -> dict[str, Any]:
     from . import projecten as mod
 
     project = _vereist(p, "project")
-    bezig = mod.is_bezig(project)
-    if bezig:
-        return {"gestart": False, "bezig": bezig}
-    mod.verwerk(
+    draad = mod.verwerk(
         project,
         stijl=str(p.get("stijl") or "landschap"),
         opnieuw=bool(p.get("opnieuw")),
         melder=gebeurtenis,
     )
+    if draad is None:
+        # Liep er al een verwerklus, dan krijgt die er één achteraan en hoeft
+        # de interface niet zelf bij te houden dat er clips wachten. Loopt er
+        # ánder werk (een render, een hermontage), dan is er niets om aan vast
+        # te plakken — `ingepland` is dan `false` en dat is de waarheid.
+        uit = {
+            "gestart": False,
+            "bezig": mod.is_bezig(project),
+            "ingepland": mod.ingepland(project),
+        }
+        # Een teruggezet project wacht nog op deze video's; tot ze er zijn
+        # wordt er niet ingelezen (zie `projecten.ontbrekend`).
+        wacht = sorted(mod.ontbrekend(project))
+        return {**uit, "wacht_op": wacht} if wacht else uit
     return {"gestart": True}
+
+
+@methode("project.zonder_ontbrekend")
+def _project_zonder_ontbrekend(p: dict[str, Any]) -> dict[str, Any]:
+    """De gebruiker gaat verder zonder de video's die nog ontbraken. Daarna is
+    het een gewoon project: de volgende ronde leest in wat er ligt."""
+    from . import opruimen
+    from . import projecten as mod
+
+    project = opruimen.projectmap(_vereist(p, "project")).name
+    mod.zet_ontbrekend(project, {})
+    return mod.naar_dict(mod.status(project))
 
 
 @methode("project.clips")
@@ -465,13 +573,119 @@ def _project_shot_zet(p: dict[str, Any]) -> dict[str, Any]:
     kader = p.get("kader")
     if kader is not None and not isinstance(kader, dict):
         raise ValueError("kader moet een object zijn, bijvoorbeeld {\"x\": 0.3, \"y\": 0.5}.")
+    stabiliseer = p.get("stabiliseer")
     return bijwerken.zet_shot(
         _vereist(p, "project"),
         _vereist(p, "shot"),
         snelheid=float(snelheid) if snelheid is not None else None,
         bron_in=float(bron_in) if bron_in is not None else None,
         kader=kader,
+        stabiliseer=bool(stabiliseer) if stabiliseer is not None else None,
     )
+
+
+@methode("project.afstemmen")
+def _project_afstemmen(p: dict[str, Any]) -> dict[str, Any]:
+    """Kleurafstemming tussen clips aan of uit (13-10-2026, `kleurmatch.py`)."""
+    from . import bijwerken
+
+    return bijwerken.zet_afstemmen(_vereist(p, "project"), bool(p.get("aan", True)))
+
+
+# -- monteren in stap 4 (13-10-2026, `monteren.py`) ---------------------------
+# Alle vijf antwoorden met de hele montage, net als `project.shot.zet`.
+
+
+@methode("project.shot.verplaats")
+def _shot_verplaats(p: dict[str, Any]) -> dict[str, Any]:
+    from . import monteren
+
+    return monteren.verplaats(_vereist(p, "project"), _vereist(p, "shot"), int(p["naar"]))
+
+
+@methode("project.shot.trim")
+def _shot_trim(p: dict[str, Any]) -> dict[str, Any]:
+    from . import monteren
+
+    return monteren.trim(
+        _vereist(p, "project"), _vereist(p, "shot"), str(p.get("kant") or "eind"),
+        int(p.get("tellen") or 0),
+    )
+
+
+@methode("project.shot.splits")
+def _shot_splits(p: dict[str, Any]) -> dict[str, Any]:
+    from . import monteren
+
+    op = p.get("op")
+    return monteren.splits(
+        _vereist(p, "project"), _vereist(p, "shot"), float(op) if op is not None else None
+    )
+
+
+@methode("project.shot.verwijder")
+def _shot_verwijder(p: dict[str, Any]) -> dict[str, Any]:
+    from . import monteren
+
+    return monteren.verwijder(_vereist(p, "project"), _vereist(p, "shot"))
+
+
+@methode("project.ongedaan")
+def _project_ongedaan(p: dict[str, Any]) -> dict[str, Any]:
+    from . import monteren
+
+    return monteren.ongedaan(_vereist(p, "project"))
+
+
+@methode("project.opnieuw")
+def _project_opnieuw(p: dict[str, Any]) -> dict[str, Any]:
+    from . import monteren
+
+    return monteren.opnieuw(_vereist(p, "project"))
+
+
+# -- spraak (13-10-2026, `spraak.py`) -----------------------------------------
+
+
+@methode("spraak.stand")
+def _spraak_stand(p: dict[str, Any]) -> dict[str, Any]:
+    from . import spraak
+
+    return spraak.stand(_vereist(p, "project"))
+
+
+@methode("spraak.maak")
+def _spraak_maak(p: dict[str, Any]) -> dict[str, Any]:
+    """Spraak aanzetten. Antwoordt meteen; `voortgang`/`klaar`/`fout` met
+    werk "spraak" volgen als gebeurtenissen."""
+    from . import spraak
+
+    inst = {k: p[k] for k in ("kleur", "grootte", "positie", "stijl", "taal") if k in p}
+    spraak.maak(_vereist(p, "project"), instellingen_nieuw=inst, melder=gebeurtenis)
+    return {"gestart": True}
+
+
+@methode("spraak.weg")
+def _spraak_weg(p: dict[str, Any]) -> dict[str, Any]:
+    from . import spraak
+
+    return spraak.weg(_vereist(p, "project"))
+
+
+@methode("spraak.installeer")
+def _spraak_installeer(_: dict[str, Any]) -> dict[str, Any]:
+    """Het spraakmodel ophalen (574 MB). Antwoordt meteen; voortgang, `klaar`
+    en `fout` komen als gebeurtenis met werk "spraakinstall"."""
+    from . import spraakinstall
+
+    return {"gestart": spraakinstall.in_achtergrond(melder=gebeurtenis)}
+
+
+@methode("spraak.installeer_stop")
+def _spraak_installeer_stop(_: dict[str, Any]) -> dict[str, Any]:
+    from . import spraakinstall
+
+    return {"gestopt": spraakinstall.stop_installatie()}
 
 
 @methode("project.regisseer")
@@ -486,6 +700,7 @@ def _project_regisseer(p: dict[str, Any]) -> dict[str, Any]:
         montagestijl=str(p["montage"]) if p.get("montage") else None,
         vorm=str(p["vorm"]) if p.get("vorm") else None,
         duur=float(duur) if duur else None,
+        titel=str(p["titel"]) if p.get("titel") else None,
     )
 
 
@@ -508,9 +723,54 @@ def _project_maakvideo(p: dict[str, Any]) -> dict[str, Any]:
         # lengte dan waarmee `edl.json` bedacht is leidt tot een nieuwe regie.
         # Stap 4 stuurt daarnaast `regie: false` — daar mag het nooit.
         regie=None if p.get("regie") is None else bool(p["regie"]),
+        export=p["export"] if isinstance(p.get("export"), dict) else None,
         melder=gebeurtenis,
     )
     return {"gestart": True}
+
+
+@methode("export.mogelijkheden")
+def _export_mogelijkheden(p: dict[str, Any]) -> dict[str, Any]:
+    """Wat het exportmenu kan aanbieden op deze computer, voor dit project."""
+    from . import export
+
+    return export.mogelijkheden(str(p["project"]) if p.get("project") else None)
+
+
+@methode("export.schat")
+def _export_schat(p: dict[str, Any]) -> dict[str, Any]:
+    """Maat, bitrate, geschatte grootte en doelpad bij een keuze. Schrijft niets."""
+    from . import export
+
+    return export.schat(_vereist(p, "project"), p.get("keuze"))
+
+
+@methode("project.voorbereid")
+def _project_voorbereid(p: dict[str, Any]) -> dict[str, Any]:
+    """Zorg dat er een montage ligt die bij de keuzes uit Stijl hoort.
+
+    Voor de geleide route Stijl → Look → Bijwerken: die twee stappen hebben een
+    montage nodig om iets te laten zien. Regisseert alleen als dat nodig is
+    (`montage.regie_nodig`), zodat teruggaan naar Stijl en weer verder het
+    handwerk uit Bijwerken niet weggooit.
+    """
+    from . import bijwerken, montage
+
+    project = _vereist(p, "project")
+    duur = float(p["duur"]) if p.get("duur") else None
+    stijl = str(p.get("stijl") or "reis")
+    vorm = str(p.get("vorm") or "16:9")
+    soort = str(p.get("montage") or "")
+    titel = str(p["titel"]) if p.get("titel") else None
+    if montage.regie_nodig(project, stijl=stijl, vorm=vorm, duur=duur, montage=soort):
+        uit = bijwerken.regisseer(
+            project, stijl=stijl, montagestijl=soort, vorm=vorm, duur=duur, titel=titel
+        )
+        return {"opnieuw": True, "uitleg": uit["uitleg"],
+                "waarschuwingen": uit["waarschuwingen"]}
+    if titel is not None:
+        bijwerken.zet_titelstijl(project, titel)
+    return {"opnieuw": False, "uitleg": "", "waarschuwingen": []}
 
 
 @methode("project.video")
@@ -551,11 +811,30 @@ def draai() -> None:
         with contextlib.suppress(AttributeError, OSError, ValueError):
             stroom.reconfigure(encoding="utf-8")
     _uit = sys.stdout
+    # De pijp waarover de app zijn verzoeken stuurt is van deze lus alleen.
+    # Een kindproces erft standaard onze stdin, en ffmpeg léést daarvan (het
+    # luistert naar toetsen). Dan eet een render een stuk van het volgende
+    # verzoek op: de regel is geen JSON meer, het antwoord krijgt geen id en
+    # de app wacht tien minuten op niets. Daarom verhuist de pijp naar een
+    # eigen nummer en krijgt nummer 0 — wat kinderen erven — het lege apparaat.
+    invoer = sys.stdin
+    with contextlib.suppress(OSError, ValueError, AttributeError):
+        eigen = os.dup(sys.stdin.fileno())
+        os.set_inheritable(eigen, False)
+        leeg = os.open(os.devnull, os.O_RDONLY)
+        os.dup2(leeg, 0)
+        os.close(leeg)
+        invoer = open(eigen, "r", encoding="utf-8", newline="\n")  # noqa: SIM115
     # Vanaf hier is stdout van het protocol en van niemand anders. Een print()
     # uit een werkdraad - buiten het `redirect_stdout` van `verwerk()` om -
     # zou er anders een regel tussen gooien die de app niet kan lezen.
     sys.stdout = sys.stderr
-    for regel in sys.stdin:
+    # De encoders alvast proberen, buiten de leeslus om (zie `export.warm_op`).
+    with contextlib.suppress(Exception):
+        from . import export as _export
+
+        _export.warm_op()
+    for regel in invoer:
         antwoord = verwerk(regel)
         if antwoord is not None:
             _schrijf(antwoord)

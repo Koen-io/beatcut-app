@@ -30,9 +30,11 @@ Vier fasen, en de laatste twee zijn de reden dat dit script bestaat:
 1. Verse installatie, en halverwege de gewichten-download op Annuleren.
 2. Opnieuw starten en doorlopen tot `paths.muziekmodel()` hem vindt.
 3. Eén echte track maken — "gevonden" is niet hetzelfde als "bruikbaar".
-4. Meet of de balk vóór loopt op wat er echt binnen is. Dat doet hij: de
+4. Meet of `st_size` vóór loopt op wat er echt binnen is. Dat doet het: de
    Xet-overdracht van Hugging Face zet elk bestand meteen op zijn eindmaat neer
-   en vult het daarna, dus `st_size` is de maat die het *gaat* worden.
+   en vult het daarna, dus `st_size` is de maat die het *gaat* worden. De balk
+   zelf telt sinds 04-10-2026 `st_blocks` (`muziekinstall._opschijf`); de kolom
+   "balk-telling" in fase 4 is dus de óude telling.
 
 Uitslag van 04-10-2026 staat in `historie/2026-10-04-verse-installatie-muziekmodel.log`.
 """

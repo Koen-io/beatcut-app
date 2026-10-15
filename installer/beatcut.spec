@@ -47,6 +47,8 @@ for pakket in ("librosa", "numba", "llvmlite", "scenedetect", "soxr", "soundfile
     except Exception:  # noqa: BLE001
         pass
 verborgen += collect_submodules("cve")
+# send2trash kiest zijn platformmodule pas bij het importeren.
+verborgen += collect_submodules("send2trash")
 
 a = Analysis(
     [str(WORTEL / "installer" / "start_engine.py")],

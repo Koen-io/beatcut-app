@@ -11,8 +11,8 @@
 
 import uniformsWgsl from "../../shaders/uniforms.wgsl?raw";
 
-/** Negen vec4's van 4 floats. */
-export const VELDEN = 9;
+/** Elf vec4's van 4 floats (sinds 13-10-2026: plus kleurA en kleurB). */
+export const VELDEN = 11;
 export const BYTES = VELDEN * 16;
 
 /** De WGSL-declaratie. De compositor plakt dit vóór de shaderbronnen.
@@ -85,7 +85,13 @@ export type Stand = {
   canvasVerhouding: number;
   looksterkte: number;
   afwerking: number[]; // acht waarden, in de volgorde van edl.Afwerking
+  /** Kleurafstemming per bron: versterking [r, g, b], 1 = laat staan.
+   *  Zie `VideoBlok.kleur` en `render._kleurmatch_filter`. */
+  kleurA?: [number, number, number];
+  kleurB?: [number, number, number];
 };
+
+export const EENHEID: [number, number, number] = [1, 1, 1];
 
 /** Zet een stand om in de 36 floats die de GPU verwacht. */
 export function schrijfUniforms(s: Stand, uit = new Float32Array(VELDEN * 4)): Float32Array {
@@ -105,5 +111,9 @@ export function schrijfUniforms(s: Stand, uit = new Float32Array(VELDEN * 4)): F
   const a = s.afwerking;
   uit.set([a[0] ?? 0, a[1] ?? 0, a[2] ?? 0, a[3] ?? 0], 28);
   uit.set([a[4] ?? 0, a[5] ?? 0, a[6] ?? 0, a[7] ?? 0], 32);
+  const ka = s.kleurA ?? EENHEID;
+  const kb = s.kleurB ?? EENHEID;
+  uit.set([ka[0], ka[1], ka[2], 0], 36);
+  uit.set([kb[0], kb[1], kb[2], 0], 40);
   return uit;
 }

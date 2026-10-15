@@ -40,8 +40,8 @@ N = 8           # momenten per overgang: t = 0, 1/8 ... 7/8
 SEED = 7
 
 # Wie niet meedoet aan "op t=0 staat bron A onaangeroerd in beeld". De dips
-# horen daar niet aan mee te doen, `wipe` is een bekende fout in de wachtrij.
-_T0_UITZONDERING = {"dip_zwart", "dip_wit", "wipe"}
+# horen daar niet aan mee te doen.
+_T0_UITZONDERING = {"dip_zwart", "dip_wit"}
 
 
 def _binary() -> Path | None:
@@ -182,10 +182,9 @@ def test_het_snedeframe_is_nog_helemaal_a(door_de_gpu):
     Dat is het frame waarop de snede valt: begint een overgang al met een
     vleugje B, dan springt het beeld een frame voordat de muziek dat doet.
     `dip_zwart` en `dip_wit` tellen niet mee — die horen op t=0 juist dicht
-    te zijn. Eén overgang staat als bekende fout in de wachtrij en is hier
-    uitgezonderd tot hij gerepareerd is: `wipe` (brein-taak 20261004-055038,
-    het lichtlijntje staat op t=0 al in de linkerkolommen, want de grens begint
-    op -0,015 en de zachte rand is 0,015 breed — ΔE2000 5,9).
+    te zijn. `wipe` stond hier tot 05-10-2026 als uitzondering: zijn
+    lichtlijntje stond op t=0 al in de linkerkolommen (ΔE2000 5,9), omdat de
+    grens maar één randbreedte buiten beeld begon.
     """
     a, _ = _bronnen()
     fout = {}

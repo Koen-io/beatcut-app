@@ -325,3 +325,55 @@ def test_model_dat_niet_opstart_loopt_op_zijn_deadline_af(tmp_path, monkeypatch)
     # `start()` ruimt zijn eigen proces op, anders leest de volgende vraag het
     # late `gereed` als trackantwoord.
     assert srv._proc is None
+
+
+def test_het_muziekproces_gaat_nooit_langs_hugging_face(tmp_path, monkeypatch):
+    """Het model staat op schijf; het hoort daar vandaan te komen.
+
+    Zonder `HF_HUB_OFFLINE` gaan `huggingface_hub` en `transformers` bij elke
+    start langs de hub om naar een nieuwere revisie te kijken. Dat is precies
+    wat BeatCut belooft niet te doen, het kost seconden per generatie, en
+    zonder netwerk valt het terug op een time-out in plaats van meteen de
+    lokale kopie te pakken (gemeten 04-10-2026, fase 6).
+    """
+    from cve import muziekgen
+
+    monkeypatch.setenv("HTTPS_PROXY", "http://iets")
+    omg = muziekgen.Server(tmp_path)._omgeving()
+    assert omg["HF_HUB_OFFLINE"] == "1"
+    assert omg["TRANSFORMERS_OFFLINE"] == "1"
+    # En de proxy's eruit, zoals het al was: het model praat met niemand.
+    assert "HTTPS_PROXY" not in omg
+
+
+def test_achtergebleven_serverscripts_gaan_weg_bij_de_volgende_start(tmp_path, monkeypatch):
+    """Een gekillde engine komt nooit bij `stop()`; zijn script bleef dan staan.
+
+    Gezien 04-10-2026: ongeveer veertig `beatcut-muziekserver-*.py` in de
+    tijdelijke map. De volgende start ruimt ze op. Een vers script blijft
+    staan: dat kan van een tweede BeatCut zijn die net opstart.
+    """
+    import os
+
+    monkeypatch.delenv("BEATCUT_MUZIEKSERVER", raising=False)
+    monkeypatch.setattr(muziekgen.tempfile, "tempdir", str(tmp_path))
+    monkeypatch.setattr(paths, "muziekmodel_python", lambda wortel: Path("python"))
+    oud = tmp_path / "beatcut-muziekserver-oud.py"
+    vers = tmp_path / "beatcut-muziekserver-vers.py"
+    anders = tmp_path / "iets-anders.py"
+    for pad in (oud, vers, anders):
+        pad.write_text("", encoding="utf-8")
+    lang_geleden = time.time() - 2 * muziekgen.SCRIPT_OUD
+    for pad in (oud, anders):
+        os.utime(pad, (lang_geleden, lang_geleden))
+
+    srv = muziekgen.Server(tmp_path)
+    try:
+        nieuw = Path(srv._commando()[1])
+        assert not oud.exists(), "het achtergebleven script staat er nog"
+        assert vers.exists(), "een vers script is van een ander proces"
+        assert anders.exists(), "alleen eigen scripts opruimen"
+        assert nieuw.exists()
+    finally:
+        srv.stop()
+    assert not nieuw.exists()

@@ -18,6 +18,7 @@ from __future__ import annotations
 from .. import kader as kader_mod
 from .. import montagestijl as montage_mod, paths, stijl as stijl_mod
 from ..analyze import beeld as beeld_mod
+from ..analyze.hoogtepunten import hoogtepunt
 from ..edl import EDL, AudioSpoor, Canvas, Grade, Overgang, VideoBlok, gemiddelde_snelheid
 from .basis import Brief, Regisseur, Voorstel
 
@@ -58,6 +59,17 @@ VORMEN = {
 
 # Kortste shot waarin een speed-ramp nog als beweging leest (seconden).
 RAMP_MIN_DUUR = 0.9
+
+# De verhaalboog (13-10-2026). Bonussen op de segmentscore, die zelf tussen
+# ruwweg 0,2 en 0,8 ligt; 0,25 is genoeg om tussen twee goede shots het
+# shot mét moment te laten winnen, en te weinig om een onscherp shot te
+# redden.
+OPENING_SCHERPTE = 0.20
+OPENING_HOOGTEPUNT = 0.25
+OPENING_NIEUWHEID = 0.10
+DROP_HOOGTEPUNT = 0.20
+SLOT_HOOGTEPUNT = 0.25
+
 
 class PresetRegisseur(Regisseur):
     naam = "preset"
@@ -138,9 +150,13 @@ class PresetRegisseur(Regisseur):
         # richting per keer verspringt en niet per shot.
         bewegingen = 0
 
-        for tijd, lengte, niveau in raster:
+        for vak, (tijd, lengte, niveau) in enumerate(raster):
             if brief.doelduur and tijd >= brief.doelduur:
                 break
+            # Het laatste vak van de montage: het slot van de verhaalboog.
+            laatste_vak = vak == len(raster) - 1 or bool(
+                brief.doelduur and raster[vak + 1][0] >= brief.doelduur
+            )
 
             # Snelheid en bevriezen komen uit de montagestijl en gelden alleen
             # op het energieniveau dat die stijl noemt. Beide raken de
@@ -184,6 +200,8 @@ class PresetRegisseur(Regisseur):
                     eerste=teller == 0 and i == 0,
                     st=st,
                     voorkeur=set(brief.voorkeur),
+                    # Ook op een soepeler niveau: het slot blijft het slot.
+                    laatste=laatste_vak,
                 )
                 if keuze is not None:
                     if i >= 2:
@@ -244,6 +262,13 @@ class PresetRegisseur(Regisseur):
         # Framevast maken vóór het audiospoor: de duur van de montage moet
         # kloppen met wat de renderer straks daadwerkelijk oplevert.
         edl.op_framerooster()
+
+        # Kleurafstemming: elke clip naar de toon van de montage, vóór de look
+        # (13-10-2026, `kleurmatch.py`). Alleen de getallen; `edl.afstemmen`
+        # zegt of ze gebruikt worden.
+        from ..kleurmatch import stem_af
+
+        stem_af(edl, analyse)
 
         if muziek:
             edl.audio.append(
@@ -379,8 +404,16 @@ class PresetRegisseur(Regisseur):
         eerste: bool,
         st: stijl_mod.Stijl,
         voorkeur: set[str] | None = None,
+        laatste: bool = False,
     ) -> tuple[dict, int] | None:
-        """Beste segment dat aan alle regels voldoet."""
+        """Beste segment dat aan alle regels voldoet.
+
+        De verhaalboog zit in de bonussen onderaan (13-10-2026): de opening
+        is de sterkste hook, de drop krijgt de hoogtepunten, het slot het
+        moment dat je bijblijft. Kwaliteit (scherp, belicht) blijft de basis;
+        `hoogtepunt` (geluids- of actiepiek, `analyze/hoogtepunten.py`) is wat
+        een nette montage een goede maakt.
+        """
         beste = None
         beste_waarde = -1e9
         verboden_clips = set(recente_clips[-CLIP_GEHEUGEN:])
@@ -420,6 +453,7 @@ class PresetRegisseur(Regisseur):
 
             waarde = seg["score"]
             ond = seg.get("onderdelen", {})
+            piek = hoogtepunt(ond)
             if niveau == "hoog":
                 if st.ritme.drops == "beeld":
                     # Het tempo blijft gelijk; de energie moet uit de beeldkeuze
@@ -428,6 +462,8 @@ class PresetRegisseur(Regisseur):
                     waarde += 0.45 * seg["score"] + 0.10 * ond.get("beweging", 0.0)
                 else:
                     waarde += 0.15 * ond.get("beweging", 0.0)
+                # De drop is waar de momenten horen: de sprong, de kreet.
+                waarde += DROP_HOOGTEPUNT * piek
             elif niveau == "rustig":
                 waarde += 0.15 * ond.get("scherpte", 0.0) - 0.10 * ond.get("shake", 0.0)
             if voorkeur and seg["clip"] in voorkeur:
@@ -435,8 +471,20 @@ class PresetRegisseur(Regisseur):
                 # geweest. `gebruikt` houdt hem daarna van het volgende vak af.
                 waarde += VOORKEUR_BONUS
             if eerste:
-                # De opening moet de sterkste hook zijn: scherp en met beweging.
-                waarde += 0.20 * ond.get("beweging", 0.0) + 0.20 * ond.get("scherpte", 0.0)
+                # De opening is de hook: scherp, met iets dat gebeurt, en liefst
+                # een beeld dat de rest van de clips niet al laat zien. Tot
+                # 13-10-2026 woog hier alleen beweging + scherpte, en dan won
+                # een nette pan van de ene sprong in het materiaal.
+                waarde += (
+                    OPENING_SCHERPTE * ond.get("scherpte", 0.0)
+                    + OPENING_HOOGTEPUNT * piek
+                    + OPENING_NIEUWHEID * ond.get("nieuwheid", 0.0)
+                    + 0.10 * ond.get("beweging", 0.0)
+                )
+            if laatste:
+                # Het slot: het moment dat je bijblijft, en scherp genoeg om
+                # een seconde op te blijven hangen.
+                waarde += SLOT_HOOGTEPUNT * piek + 0.15 * ond.get("scherpte", 0.0)
 
             if waarde > beste_waarde:
                 beste_waarde = waarde

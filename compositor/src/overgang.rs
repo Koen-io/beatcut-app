@@ -202,12 +202,17 @@ impl Menger {
     pub fn meng(&mut self, a: &[u8], b: &[u8], m: Moment) -> Result<Vec<u8>, String> {
         self.schrijf(&self.a, a);
         self.schrijf(&self.b, b);
-        // `struct Uniforms` uit uniforms.wgsl: negen vec4's.
-        let mut u = [0f32; 36];
+        // `struct Uniforms` uit uniforms.wgsl: elf vec4's.
+        let mut u = [0f32; 44];
         // bronA, bronB, pasA, pasB: schaal 1, verschuiving 0 — de eenheid.
         for basis in [0usize, 4, 8, 12] {
             u[basis] = 1.0;
             u[basis + 1] = 1.0;
+        }
+        // kleurA, kleurB: versterking 1 — de blokken zijn hier al afgestemd
+        // door ffmpeg (render._kleurmatch_filter), dus niets nog eens doen.
+        for i in 36..44 {
+            u[i] = 1.0;
         }
         u[16] = m.meng.clamp(0.0, 1.0);
         u[17] = m.soort as f32;

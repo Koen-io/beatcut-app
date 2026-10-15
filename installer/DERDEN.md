@@ -14,6 +14,7 @@ app, of wat de app op jouw verzoek ophaalt, met de licentie.
 | mp4box.js | BSD 3-Clause | de live voorvertoning |
 | GSAP 3 | GreenSock Standard "no charge" License | animatie van de titels |
 | Python, NumPy, OpenCV, librosa, numba, PySceneDetect, soundfile | PSF / BSD / Apache 2.0 / ISC | analyse van beeld en geluid |
+| Send2Trash | BSD 3-Clause | een verwijderd project gaat naar de prullenbak |
 | 19 lettertypen (zie `brands/fonts/herkomst.json`) | SIL Open Font License 1.1 | titels |
 | GeoNames-plaatsenlijst (cities15000, uitgekleed) | CC BY 4.0 — © GeoNames, geonames.org | plaatsnamen in titels |
 

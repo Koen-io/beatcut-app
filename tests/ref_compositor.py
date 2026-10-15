@@ -421,7 +421,8 @@ def _o_meng(nr, a, b, a_beeld, b_beeld, u, v, tt, puls, verh, fr, vast):
 
     if naam == "wipe":
         rand = 0.015
-        grens = tt * (1.0 + 2.0 * rand) - rand
+        buiten = 3.0 * rand
+        grens = tt * (1.0 + 2.0 * buiten) - buiten
         c = _o_meng_licht(b, a, _smoothstep(grens - rand, grens + rand, u)[..., None])
         lijn = np.exp(-(((u - grens) / rand) ** 2.0))
         return c + (lijn * 0.25)[..., None]

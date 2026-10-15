@@ -134,6 +134,14 @@ def test_verwerk_meldt_voortgang_en_klaar_en_levert_clips_met_beeldje(
     # De teller komt uit de logregels "[1/2] C01" van ingest en analyse.
     assert any(d["totaal"] == 2 and d["gedaan"] > 0 for d in voortgang)
 
+    # De tijdschatting rijdt mee: verstreken loopt op, en de klus wordt in
+    # seconden bronvideo geteld (2 clips van 2 s) en niet in bestanden.
+    assert all({"verstreken", "resterend", "aandeel", "bron_totaal"} <= set(d) for d in voortgang)
+    assert max(d["verstreken"] for d in voortgang) > 0
+    inlezen = [d for d in voortgang if d["stap"] == "inlezen" and d["bron_totaal"] > 0]
+    assert inlezen, "inlezen meldde geen bronvideo"
+    assert 3.5 < inlezen[-1]["bron_totaal"] < 4.5, inlezen[-1]["bron_totaal"]
+
     clips = _vraag("project.clips", project="motor")
     assert [c["naam"] for c in clips] == ["clip-a.mp4", "clip-b.mp4"]
     for c in clips:
@@ -155,14 +163,67 @@ def test_verwerk_meldt_voortgang_en_klaar_en_levert_clips_met_beeldje(
     assert [c["aan"] for c in opnieuw] == [False, True]
 
 
-def test_verwerk_weigert_als_er_al_iets_loopt(losse_projectmap):
-    """Twee keer klikken mag geen twee ingests over elkaar heen starten."""
+def test_verwerk_start_niets_tweede_keer_maar_boekt_een_ronde_bij(losse_projectmap):
+    """Twee keer klikken mag geen twee ingests over elkaar heen starten.
+
+    Het mag ook niet stil verdwijnen: wie tijdens het verwerken clips
+    toevoegt, hoort ze in de analyse terug te zien. De engine boekt daarom een
+    ronde bij \u2014 eerst deed de interface dat, en die kon de tijdschatting
+    alleen opnieuw laten beginnen.
+    """
     projecten_mod.zet_bezig("bezet", "Beelden inlezen\u2026")
     try:
+        projecten_mod._draaiend.add("bezet")
         uit = _vraag("project.verwerk", project="bezet")
-        assert uit == {"gestart": False, "bezig": "Beelden inlezen\u2026"}
+        assert uit == {"gestart": False, "bezig": "Beelden inlezen\u2026", "ingepland": True}
+        assert "bezet" in projecten_mod._nogmaals
     finally:
         projecten_mod.zet_bezig("bezet", None)
+        projecten_mod._nogmaals.discard("bezet")
+        projecten_mod._draaiend.discard("bezet")
+
+
+@nodig_ffmpeg
+def test_clips_toevoegen_tijdens_het_verwerken_komen_in_de_analyse(
+    losse_projectmap, opgevangen
+):
+    """De bijgeboekte ronde moet de nieuwe clip echt oppakken.
+
+    De eerste ronde legt de bronlijst vast bij de start; een clip die daarna
+    binnenkomt zat er niet in. Zonder tweede ronde staat hij wel in de lijst en
+    nergens in `analysis.json` \u2014 precies de fout die iemand pas ziet als zijn
+    beste shot ontbreekt in de montage.
+    """
+    _vraag("project.maak", naam="bijboeken")
+    bron = losse_projectmap / "kaart"
+    bron.mkdir()
+    for naam in ("een.mp4", "twee.mp4"):
+        _maak_clip(bron / naam)
+    _vraag("project.voegtoe", project="bijboeken", paden=[str(bron / "een.mp4")])
+
+    assert _vraag("project.verwerk", project="bijboeken") == {"gestart": True}
+    # Meteen erachteraan: de ronde loopt nog, dus dit hoort te worden bijgeboekt.
+    _vraag("project.voegtoe", project="bijboeken", paden=[str(bron / "twee.mp4")])
+    tweede = _vraag("project.verwerk", project="bijboeken")
+    assert tweede["gestart"] is False and tweede["ingepland"] is True
+
+    grens = time.monotonic() + 240
+    while time.monotonic() < grens:
+        if any(r.get("gebeurtenis") in ("klaar", "fout") for r in opgevangen):
+            break
+        time.sleep(0.2)
+    fouten = [r for r in opgevangen if r["gebeurtenis"] == "fout"]
+    assert not fouten, fouten
+    assert any(r["gebeurtenis"] == "klaar" for r in opgevangen), "nooit klaar geworden"
+
+    # Twee rondes, niet één: "Analyseren…" staat er per ronde één keer. Zonder
+    # deze controle zou de test ook groen zijn als de eerste ronde de tweede
+    # clip toevallig nog meepakte, en dan bewijst hij niets.
+    voortgang = [r["data"] for r in opgevangen if r["gebeurtenis"] == "voortgang"]
+    assert sum(1 for d in voortgang if d["tekst"] == "Analyseren…") == 2
+
+    analyse = json.loads((paths.PROJECTEN / "bijboeken" / "analysis.json").read_text())
+    assert {c["bestand"] for c in analyse["clips"]} == {"een.mp4", "twee.mp4"}
 
 
 def test_twee_bronnen_met_dezelfde_naam_overschrijven_elkaar_niet(losse_projectmap):
@@ -252,3 +313,47 @@ def test_een_lege_map_slepen_geeft_een_fout_in_plaats_van_stilte(losse_projectma
     uit = _vraag("project.voegtoe", project="leeg", paden=[str(leeg)])
     assert uit["bestanden"][0]["fout"] == "geen videobestanden in deze map"
     assert uit["status"]["aantal_clips"] == 0
+
+
+def test_ander_werk_belooft_geen_ronde_die_niemand_oppakt(losse_projectmap):
+    """Codex, 04-10-2026: `ingepland: true` terwijl er niets kwam.
+
+    `_bezig` vult zich ook met een render of een hermontage, en die legen de
+    wachtrij nooit — alleen de verwerklus doet dat. Loopt er zulk ander werk,
+    dan hoort er niets bijgeboekt te worden en niets beloofd.
+    """
+    projecten_mod.zet_bezig("rendert", "De montage bedenken\u2026")
+    try:
+        uit = _vraag("project.verwerk", project="rendert")
+        assert uit["gestart"] is False
+        assert uit["ingepland"] is False
+        assert "rendert" not in projecten_mod._nogmaals
+    finally:
+        projecten_mod.zet_bezig("rendert", None)
+
+
+@nodig_ffmpeg
+def test_een_mislukte_ronde_laat_het_project_niet_op_slot(losse_projectmap, opgevangen):
+    """Codex, 04-10-2026: na een fout bleef "FOUT: …" in `_bezig` staan.
+
+    Daarmee weigerde `neem_bezig()` daarna élke render en elke hermontage, hield
+    `bezig` de updater tegen, en gaf een nieuwe poging alleen nog
+    `gestart: false`. Een project dat faalde is niet bezig; de fout gaat naar
+    de interface.
+    """
+    _vraag("project.maak", naam="valt-om")
+    # Geen bronnen: de ingest gooit meteen.
+    assert _vraag("project.verwerk", project="valt-om") == {"gestart": True}
+
+    grens = time.monotonic() + 60
+    while time.monotonic() < grens:
+        if any(r.get("gebeurtenis") == "fout" for r in opgevangen):
+            break
+        time.sleep(0.1)
+    assert any(r["gebeurtenis"] == "fout" for r in opgevangen), "geen foutmelding"
+
+    time.sleep(0.3)
+    assert projecten_mod.is_bezig("valt-om") is None, projecten_mod.is_bezig("valt-om")
+    assert "valt-om" not in projecten_mod._draaiend
+    assert projecten_mod.neem_bezig("valt-om", "renderen"), "project zit nog op slot"
+    projecten_mod.zet_bezig("valt-om", None)

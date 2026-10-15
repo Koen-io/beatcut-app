@@ -9,6 +9,7 @@ import { convertFileSrc } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { open } from "@tauri-apps/plugin-dialog";
 import { bytesTekst, duurTekst } from "./format";
+import { blobBron, blobLos } from "./blobbron";
 import {
   AUDIO_EXTENSIES,
   GEBEURTENIS,
@@ -30,6 +31,8 @@ import {
   type Titelstijl,
   type Vorm,
 } from "./engine";
+import Zijbalk from "./Zijbalk";
+import { EDITIE } from "./editie";
 
 /** Wat stap 2 vastlegt en stap 5 alleen nog voorleest.
  *
@@ -103,16 +106,44 @@ type Props = {
   /** Start de montage en ga naar Exporteren. Zit in App, want de gebeurtenissen
    *  van de engine komen binnen terwijl dit scherm al weg is. */
   onMaakVideo: () => void;
+  /** De gewone weg: de montage bedenken en door naar Look en Bijwerken. Gooit
+   *  als de engine de montage niet kan maken; dit scherm toont dat dan. */
+  onVerder: () => Promise<void>;
   /** De schakelaar uit de titelbalk. Het muziekmodel moet één keer van
    *  internet komen, dus offline hoort die knop uit te staan. */
   online: boolean;
 };
 
-export default function Stijl({ project, keuze, setKeuze, onMaakVideo, online }: Props) {
+export default function Stijl({ project, keuze, setKeuze, onMaakVideo, onVerder, online }: Props) {
+  /** Loopt "Verder"? De regie duurt tienden van seconden, maar bij nieuwe
+   *  muziek meet de engine eerst het tempo na, en dat kan even duren. */
+  const [gaatVerder, setGaatVerder] = useState(false);
   const [stijlen, setStijlen] = useState<Stijlen | null>(null);
   const [muziek, setMuziek] = useState<Muziek | null>(null);
   const [meet, setMeet] = useState(false);
   const [fout, setFout] = useState<string | null>(null);
+
+  // De voorbeeldfilmpjes van de montagestijlen, één voor één helemaal
+  // opgehaald (samen ~4 MB). Zie `blobbron.ts` waarom niet rechtstreeks.
+  const [tegelBronnen, setTegelBronnen] = useState<Record<string, string>>({});
+  const tegelIds = (stijlen?.montagestijlen ?? []).map((m) => m.id).join(",");
+  useEffect(() => {
+    let weg = false;
+    void (async () => {
+      for (const id of tegelIds.split(",").filter(Boolean)) {
+        try {
+          const u = await blobBron(`/stijlvoorbeelden/${id}.mp4`);
+          if (weg) return;
+          setTegelBronnen((t) => (t[id] === u ? t : { ...t, [id]: u }));
+        } catch {
+          // Geen filmpje: de tegel blijft op zijn poster staan.
+        }
+      }
+    })();
+    return () => {
+      weg = true;
+    };
+  }, [tegelIds]);
 
   const [tab, setTab] = useState<"montage" | "titels" | "beelden">("montage");
   // De voorbeeldbeelden komen apart binnen: bij een lege cache is dat een
@@ -131,6 +162,8 @@ export default function Stijl({ project, keuze, setKeuze, onMaakVideo, online }:
   // generatie: het loopt machinebreed door, ook als je van project wisselt.
   const [installeert, setInstalleert] = useState(false);
   const [instFout, setInstFout] = useState<string | null>(null);
+  // Zelf op Annuleren gedrukt is geen fout: die melding krijgt de rustige toon.
+  const [instGestopt, setInstGestopt] = useState(false);
   const [instStand, setInstStand] = useState({
     stap: "", percentage: 0, tekst: "", gedaan: 0, totaal: 0,
   });
@@ -250,6 +283,7 @@ export default function Stijl({ project, keuze, setKeuze, onMaakVideo, online }:
           .finally(() => setInstalleert(false));
       } else if (payload.gebeurtenis === "fout") {
         setInstalleert(false);
+        setInstGestopt(payload.data.soort === "Gestopt");
         setInstFout(payload.data.fout);
       }
     });
@@ -260,6 +294,7 @@ export default function Stijl({ project, keuze, setKeuze, onMaakVideo, online }:
 
   async function installeerModel() {
     setInstFout(null);
+    setInstGestopt(false);
     setInstStand({ stap: "", percentage: 0, tekst: "Beginnen…", gedaan: 0, totaal: 0 });
     setInstalleert(true);
     try {
@@ -276,6 +311,7 @@ export default function Stijl({ project, keuze, setKeuze, onMaakVideo, online }:
     try {
       await muziekInstalleerStop();
     } catch (e) {
+      setInstGestopt(false);
       setInstFout(String(e));
     }
   }
@@ -324,7 +360,19 @@ export default function Stijl({ project, keuze, setKeuze, onMaakVideo, online }:
     }
   }
 
+  // Welke variant er het laatst gevraagd is, en welk blob:-adres er nu in de
+  // speler zit (om het weer vrij te geven).
+  const muziekVraag = useRef(0);
+  const muziekBlob = useRef<string | null>(null);
+  useEffect(
+    () => () => {
+      if (muziekBlob.current) URL.revokeObjectURL(muziekBlob.current);
+    },
+    [],
+  );
+
   function stopSpelen() {
+    muziekVraag.current++; // een start die nog onderweg is, telt niet meer
     speler.current?.pause();
     setSpeelt(null);
   }
@@ -336,8 +384,30 @@ export default function Stijl({ project, keuze, setKeuze, onMaakVideo, online }:
     }
     const a = speler.current;
     if (a === null) return;
-    a.src = convertFileSrc(v.pad);
-    void a.play().then(() => setSpeelt(v.pad)).catch((e) => setFout(String(e)));
+    // Via een `blob:`-adres: wisselen tussen varianten brak anders lopende
+    // asset://-verzoeken af, en dat kan de app laten crashen (blobbron.ts).
+    // Niet onthouden (een variant is een WAV van tientallen MB), en een
+    // antwoord op een vraag die al ingehaald is telt niet (review 15-10).
+    const nr = ++muziekVraag.current;
+    void blobLos(convertFileSrc(v.pad))
+      .then((u) => {
+        if (nr !== muziekVraag.current) {
+          URL.revokeObjectURL(u);
+          return false;
+        }
+        if (muziekBlob.current) URL.revokeObjectURL(muziekBlob.current);
+        muziekBlob.current = u;
+        a.src = u;
+        return a.play().then(() => true);
+      })
+      .then((speeltNu) => {
+        if (speeltNu && nr === muziekVraag.current) setSpeelt(v.pad);
+      })
+      .catch((e) => {
+        // Pauze of een andere variant tijdens het starten: geen fout.
+        if (e instanceof DOMException && e.name === "AbortError") return;
+        setFout(String(e));
+      });
   }
 
   async function componeer() {
@@ -408,7 +478,13 @@ export default function Stijl({ project, keuze, setKeuze, onMaakVideo, online }:
 
   return (
     <div className="werkvlak">
-      <aside className="zijbalk breed">
+      <Zijbalk
+        kant="links"
+        sleutel="stijl-links"
+        standaard={380}
+        naam="de stijlkeuze"
+        klasse="breed"
+      >
         <div className="groep">
           <h1 className="stap-titel">Stijl</h1>
           <p className="stap-uitleg">
@@ -462,6 +538,7 @@ export default function Stijl({ project, keuze, setKeuze, onMaakVideo, online }:
                 gekozen={m.id === keuze.montage}
                 voorstel={stijlen?.montage_herkend === m.id}
                 onKies={() => setKeuze({ ...keuze, montage: m.id })}
+                bron={tegelBronnen[m.id]}
               />
             ))}
             {stijlen !== null && zichtbaar.length === 0 && (
@@ -505,11 +582,11 @@ export default function Stijl({ project, keuze, setKeuze, onMaakVideo, online }:
 
         {stijlen?.uitleg !== undefined && (
           <div className="voetnoot">
-            <b>Wat BeatCut in je beelden ziet</b>
+            <b>Wat {EDITIE.naam} in je beelden ziet</b>
             <span>{stijlen.uitleg}</span>
           </div>
         )}
-      </aside>
+      </Zijbalk>
 
       <main className="podium">
         {fout !== null && (
@@ -523,7 +600,7 @@ export default function Stijl({ project, keuze, setKeuze, onMaakVideo, online }:
         )}
 
         <div className="samenvatting">
-          <span className="kop-klein">Zo gaat BeatCut het monteren</span>
+          <span className="kop-klein">Zo gaat {EDITIE.naam} het monteren</span>
           <h2>{gekozenMontage?.titel ?? "Kies een montagestijl"}</h2>
           <div className="samenvatting-rijen">
             <div>
@@ -561,13 +638,20 @@ export default function Stijl({ project, keuze, setKeuze, onMaakVideo, online }:
             <p className="stap-uitleg">{gekozenMontage.omschrijving}</p>
           )}
           <p className="stap-uitleg">
-            De voorvertoning die meteen meespeelt komt met de compositor. Tot die tijd maakt BeatCut
-            de video echt: regie, render en nakijken, en dan speelt hij bij Exporteren.
+            Hierna kies je bij Look de kleur en stuur je bij Bijwerken losse shots bij, met een
+            voorvertoning die meteen meespeelt. Daarna maakt {EDITIE.naam} de video echt: render en
+            nakijken, en dan staat hij bij Exporteren.
           </p>
         </div>
       </main>
 
-      <aside className="zijbalk rechts">
+      <Zijbalk
+        kant="rechts"
+        sleutel="stijl-rechts"
+        standaard={300}
+        naam="het rechterpaneel"
+        klasse="rechts"
+      >
         <div className="groep">
           <div className="kop-klein">Formaat</div>
           <div className="vorm-raster">
@@ -697,11 +781,16 @@ export default function Stijl({ project, keuze, setKeuze, onMaakVideo, online }:
                   )}
                 </>
               )}
-              {instFout !== null && (
-                <span className="noot-waarschuwing" role="alert">
-                  {instFout}
-                </span>
-              )}
+              {instFout !== null &&
+                (instGestopt ? (
+                  <span className="kleine-noot" role="status">
+                    {instFout}
+                  </span>
+                ) : (
+                  <span className="noot-waarschuwing" role="alert">
+                    {instFout}
+                  </span>
+                ))}
             </div>
           )}
 
@@ -784,39 +873,125 @@ export default function Stijl({ project, keuze, setKeuze, onMaakVideo, online }:
         <div className="afsluiter">
           {muziek === null && (
             <span className="kleine-noot">
-              Kies eerst een muziekstuk. BeatCut legt elke snede op een tel, dus zonder muziek is er
+              Kies eerst een muziekstuk. {EDITIE.naam} legt elke snede op een tel, dus zonder muziek is er
               niets om op te monteren.
             </span>
           )}
-          <button className="knop-groot vol" onClick={onMaakVideo} disabled={!kanDoor}>
-            Maak video →
+          <span className="route" aria-hidden="true">
+            <b className="nu">2 Stijl</b>→<b>3 Look</b>→<b>4 Bijwerken</b>→<b>5 Exporteren</b>
+          </span>
+          <button
+            className="knop-groot vol"
+            disabled={!kanDoor || gaatVerder}
+            onClick={() => {
+              setGaatVerder(true);
+              setFout(null);
+              onVerder()
+                .catch((e) => setFout(String(e)))
+                .finally(() => setGaatVerder(false));
+            }}
+          >
+            {gaatVerder ? "De montage bedenken…" : "Verder: kleur en look →"}
           </button>
+          <div className="overslaan">
+            <button className="knop-stil" onClick={onMaakVideo} disabled={!kanDoor || gaatVerder}>
+              Look en Bijwerken overslaan — maak direct de video
+            </button>
+            <span className="kleine-noot">
+              Je kunt er later altijd nog naartoe; de stappen bovenin blijven open.
+            </span>
+          </div>
         </div>
-      </aside>
+      </Zijbalk>
     </div>
   );
 }
 
 /** Eén montagestijl: energiebalkjes, naam, snijritme en wat hij doet. */
+/** Eén montagestijl, met een voorbeeld dat onder de muis gaat spelen.
+ *
+ *  Namen als "velocity" en "broll" zeggen niemand iets. De tegel laat zien wat
+ *  "elke tel snijden" betekent tegenover "per frase" — gerenderd door dezelfde
+ *  motor die straks de echte video maakt, zodat de tegel geen belofte doet die
+ *  het product niet nakomt. Zie `engine/cve/stijlvoorbeelden.py`.
+ *
+ *  De bestanden staan in `app/public/stijlvoorbeelden/` en gaan dus mee in de
+ *  bundel: niets te downloaden, werkt offline. */
 function MontageKaart({
   m,
   gekozen,
   voorstel,
   onKies,
+  bron,
 }: {
   m: Montagestijl;
   gekozen: boolean;
   voorstel: boolean;
   onKies: () => void;
+  /** `blob:`-adres van het voorbeeld, zie `blobbron.ts`. Zolang het er niet
+   *  is staat de tegel stil op zijn poster. */
+  bron?: string;
 }) {
+  const film = useRef<HTMLVideoElement | null>(null);
+  const [mist, setMist] = useState(false);
+
+  function speel() {
+    const v = film.current;
+    // Wie beweging heeft uitgezet krijgt het stilstaande beeld. Veertien
+    // tegels die bij elk muisgebaar aanspringen is precies waar die
+    // voorkeur over gaat.
+    if (v === null || !bron || window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+    v.currentTime = 0;
+    // `play()` geeft een belofte die afgewezen wordt als de muis alweer weg
+    // is. Onafgevangen is dat een rode regel in de console bij elke beweging.
+    void v.play().catch(() => {});
+  }
+
+  function stop() {
+    const v = film.current;
+    if (v === null) return;
+    v.pause();
+    v.currentTime = 0;
+  }
+
   return (
-    <button className="stijl-kaart met-energie" aria-pressed={gekozen} onClick={onKies}>
-      <Energie energie={m.energie} />
+    <button
+      className="stijl-kaart met-montage"
+      aria-pressed={gekozen}
+      onClick={onKies}
+      onMouseEnter={speel}
+      onMouseLeave={stop}
+      onFocus={speel}
+      onBlur={stop}
+    >
+      <span className="montage-beeld">
+        {mist ? (
+          <span className="beeld-wacht">{m.titel}</span>
+        ) : (
+          <video
+            ref={film}
+            className="montage-film"
+            // Nooit het `tauri://`-adres zelf: zie `blobbron.ts` (de crash
+            // bij het scrollen door deze lijst, 15-10-2026).
+            src={bron}
+            poster={`/stijlvoorbeelden/${m.id}.jpg`}
+            preload="auto"
+            muted
+            loop
+            playsInline
+            aria-hidden="true"
+            onError={() => setMist(true)}
+          />
+        )}
+        <Energie energie={m.energie} />
+        {/* Het snijritme hoort bij het beeld, niet bij de tekst: naast de
+            titel paste het niet op één regel ("Cinematisch reizen" plus
+            "per maat" liep de kaart uit), en hier staat het precies waar de
+            tegel het laat zien. */}
+        <span className="snijritme mono">{m.snijritme}</span>
+      </span>
       <span className="montage-tekst">
-        <span className="regel">
-          <b>{m.titel}</b>
-          <span className="snijritme mono">{m.snijritme}</span>
-        </span>
+        <b>{m.titel}</b>
         <span className="omschrijving">{m.omschrijving}</span>
         {voorstel && <span className="label-herkend">past bij je beelden</span>}
       </span>
